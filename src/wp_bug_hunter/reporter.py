@@ -46,10 +46,12 @@ def generate_report(
     result: AnalysisResult,
     verifications: list[VerificationResult],
     platform: str = "",
+    output_dir: str = "",
 ) -> Path:
     """Render a markdown report for the analysis and write it to OUTPUT_DIR."""
     today = datetime.date.today()
-    output_path = Path(OUTPUT_DIR)
+    effective_dir = output_dir if output_dir else OUTPUT_DIR
+    output_path = Path(effective_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     filename = f"{result.plugin_slug}_{today.strftime(FILENAME_DATE_FORMAT)}.md"

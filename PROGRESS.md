@@ -10,23 +10,27 @@
 - COMPLETE: analyzer.py - 2026-05-09
 - COMPLETE: verifier.py - 2026-05-09
 - COMPLETE: reporter.py - 2026-05-09
+- COMPLETE: cli.py - 2026-05-09
 
 ## Current Status
 
-reporter.py written and verified (import clean). Public API is generate_report(
-AnalysisResult, list[VerificationResult], platform) -> Path. Builds a markdown
-report from a list[str] of lines joined at the end. Sections: H1 header with
-metadata table, executive summary with total findings / passed count / risk level
-(derived from max CVSS score), one H2 section per finding (metadata table,
-description, attacker impact, CVSS breakdown table, reproduction steps, confirmation
-criteria, false positive checks, verification status with blocking/warnings), and
-an appendix with one recording guide block per finding. Saves to OUTPUT_DIR as
-<plugin_slug>_<YYYYMMDD>.md. Verification lookup is keyed by pattern_name; lookup
-miss yields WARN status rather than an error.
+cli.py written and verified (import clean). Single typer command: scan. Takes
+plugin_slug as a required positional argument. Options: --platform (report label),
+--skip-network (offline mode, skips scope and CVE checks), --output-dir (overrides
+report output directory, passed directly into generate_report). Flow: banner,
+optional scope check with confirmation prompt if not in scope, scan_plugin, analyze,
+verify_analysis, generate_report, rich summary table. KeyboardInterrupt exits 0,
+unhandled exceptions print message and exit 1. Entry point is wp_bug_hunter.cli:app
+as wired in pyproject.toml.
+
+reporter.py updated: generate_report gained output_dir: str = "" parameter;
+effective_dir resolves to output_dir when set, OUTPUT_DIR otherwise.
 
 ## Remaining Files (in order)
 
-1. cli.py - typer CLI entry point wiring all modules together
+1. README.md
+2. LEGAL.md
+3. CHANGELOG.md
 2. reporter.py - markdown report file generator
 3. cli.py - typer CLI entry point wiring all modules together
 4. README.md

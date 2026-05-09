@@ -4,15 +4,18 @@
 
 - COMPLETE: config.py - 2026-05-09
 - COMPLETE: scope.py - 2026-05-09
+- COMPLETE: scanner.py - 2026-05-09
 
 ## Current Status
 
-scope.py written and verified. Covers all five bug bounty platforms
-(Patchstack, Wordfence, HackerOne, Bugcrowd, Intigriti). Detects target
-type (WordPress plugin slug vs web target), runs relevant platform checks,
-returns ScopeCheck with per-platform ScopeResult and overall_in_scope flag.
+scanner.py written and verified (import clean). Downloads plugin zip from
+wordpress.org, extracts safely (zip slip protected), scans every PHP file
+against 10 vulnerability patterns (SQLi, XSS, CSRF, File Inclusion, File
+Upload, Privilege Escalation, Open Redirect, Object Injection, RCE, IDOR).
+Confidence scoring is explainable per finding. Findings ranked by confidence
+descending, severity as tiebreaker.
 
 ## Next Step
 
-Write scanner.py - fetch plugin source from WordPress.org SVN and scan
-for vulnerability patterns, returning raw findings for analyzer.py to rank.
+Write analyzer.py - cross-reference findings against WPScan and Patchstack
+known-CVE databases so already-reported vulnerabilities are skipped.

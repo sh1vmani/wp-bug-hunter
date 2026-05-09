@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wp-bug-hunter"
+version = "0.1.0"
+description = "Personal bug bounty research assistant for WordPress plugins and public bug bounty targets"
+authors = [{ name = "Shivamani Vastrala", email = "shivamaniuni1@gmail.com" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "rich",
+    "typer",
+    "pydantic",
+    "colorama",
+    "python-dotenv",
+    "httpx",
+    "packaging",
+    "PyYAML",
+    "jinja2",
+]
+
+[project.scripts]
+wp-bug-hunter = "wp_bug_hunter.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]

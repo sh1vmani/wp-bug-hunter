@@ -8,24 +8,24 @@
 - COMPLETE: pyproject.toml - 2026-05-09
 - COMPLETE: .gitignore - 2026-05-09
 - COMPLETE: analyzer.py - 2026-05-09
+- COMPLETE: verifier.py - 2026-05-09
 
 ## Current Status
 
-analyzer.py written and verified (import clean). For every finding from
-scanner.py, generates: plain-English vulnerability explanation, attacker
-impact, 15-step test environment setup (WP-CLI), plugin install steps,
-pattern-specific reproduction steps, confirmation criteria, false positive
-checks, severity justification, CVSS 3.1 estimate with component breakdown,
-and OBS Studio screen recording guide. All 10 patterns covered with
-dedicated templates. Fallback template handles future patterns.
-
-Package installed in editable mode via pyproject.toml. Import works
-without PYTHONPATH prefix.
+verifier.py written and verified (import clean). Accepts a VerificationWalkthrough
+plus plugin_slug, plugin_version, and evidence_dir. Runs nine checks: plugin
+version recorded, confidence threshold (85%), CVSS score present, reproduction
+steps present, description length (200 chars min), video evidence present and
+>= 5 MB, screenshot count >= 3, target in scope via scope.verify_scope, and
+WPScan CVE cross-reference via API v3. Network checks are merged into one
+if/else block and can be skipped offline. Returns VerificationResult with
+ready flag, blocking list, warnings list, and summary() method. verify_analysis
+convenience function processes all walkthroughs in an AnalysisResult against
+one shared evidence directory per plugin.
 
 ## Remaining Files (in order)
 
-1. verifier.py - submission readiness checker, WPScan and Patchstack
-   known-CVE cross-reference to skip already-reported issues
+1. reporter.py - markdown report file generator
 2. reporter.py - markdown report file generator
 3. cli.py - typer CLI entry point wiring all modules together
 4. README.md

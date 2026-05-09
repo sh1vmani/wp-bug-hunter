@@ -9,23 +9,24 @@
 - COMPLETE: .gitignore - 2026-05-09
 - COMPLETE: analyzer.py - 2026-05-09
 - COMPLETE: verifier.py - 2026-05-09
+- COMPLETE: reporter.py - 2026-05-09
 
 ## Current Status
 
-verifier.py written and verified (import clean). Accepts a VerificationWalkthrough
-plus plugin_slug, plugin_version, and evidence_dir. Runs nine checks: plugin
-version recorded, confidence threshold (85%), CVSS score present, reproduction
-steps present, description length (200 chars min), video evidence present and
->= 5 MB, screenshot count >= 3, target in scope via scope.verify_scope, and
-WPScan CVE cross-reference via API v3. Network checks are merged into one
-if/else block and can be skipped offline. Returns VerificationResult with
-ready flag, blocking list, warnings list, and summary() method. verify_analysis
-convenience function processes all walkthroughs in an AnalysisResult against
-one shared evidence directory per plugin.
+reporter.py written and verified (import clean). Public API is generate_report(
+AnalysisResult, list[VerificationResult], platform) -> Path. Builds a markdown
+report from a list[str] of lines joined at the end. Sections: H1 header with
+metadata table, executive summary with total findings / passed count / risk level
+(derived from max CVSS score), one H2 section per finding (metadata table,
+description, attacker impact, CVSS breakdown table, reproduction steps, confirmation
+criteria, false positive checks, verification status with blocking/warnings), and
+an appendix with one recording guide block per finding. Saves to OUTPUT_DIR as
+<plugin_slug>_<YYYYMMDD>.md. Verification lookup is keyed by pattern_name; lookup
+miss yields WARN status rather than an error.
 
 ## Remaining Files (in order)
 
-1. reporter.py - markdown report file generator
+1. cli.py - typer CLI entry point wiring all modules together
 2. reporter.py - markdown report file generator
 3. cli.py - typer CLI entry point wiring all modules together
 4. README.md

@@ -5,17 +5,20 @@
 - COMPLETE: config.py - 2026-05-09
 - COMPLETE: scope.py - 2026-05-09
 - COMPLETE: scanner.py - 2026-05-09
+- COMPLETE: analyzer.py - 2026-05-09
 
 ## Current Status
 
-scanner.py written and verified (import clean). Downloads plugin zip from
-wordpress.org, extracts safely (zip slip protected), scans every PHP file
-against 10 vulnerability patterns (SQLi, XSS, CSRF, File Inclusion, File
-Upload, Privilege Escalation, Open Redirect, Object Injection, RCE, IDOR).
-Confidence scoring is explainable per finding. Findings ranked by confidence
-descending, severity as tiebreaker.
+analyzer.py written and verified (import clean). For every finding from
+scanner.py, generates: plain-English vulnerability explanation, attacker
+impact, 15-step test environment setup (WP-CLI), plugin install steps,
+pattern-specific reproduction steps, confirmation criteria, false positive
+checks, severity justification, CVSS 3.1 estimate with component breakdown,
+and OBS Studio screen recording guide. All 10 patterns covered with
+dedicated templates. Fallback template handles future patterns.
 
 ## Next Step
 
-Write analyzer.py - cross-reference findings against WPScan and Patchstack
-known-CVE databases so already-reported vulnerabilities are skipped.
+Write verifier.py - check submission readiness after manual verification
+is complete, cross-reference against WPScan and Patchstack known CVE
+databases to skip already-reported issues.

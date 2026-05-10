@@ -37,6 +37,8 @@ class VerificationResult:
     ready: bool
     blocking: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    payout_estimate: str = ""
+    payout_from_platform: bool = False
 
     def summary(self) -> None:
         """Print a formatted pass/fail checklist to stdout."""
@@ -195,6 +197,8 @@ def verify_walkthrough(
         ready=len(blocking) == 0,
         blocking=blocking,
         warnings=warnings,
+        payout_estimate=walkthrough.payout_estimate,
+        payout_from_platform=walkthrough.payout_from_platform,
     )
 
 

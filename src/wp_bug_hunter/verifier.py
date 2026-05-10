@@ -142,29 +142,30 @@ def verify_walkthrough(
     if not os.path.isdir(evidence_dir):
         blocking.append(f"Evidence directory not found: {evidence_dir}")
     else:
+        all_files = os.listdir(evidence_dir)
+
         # Video present and large enough
         video_ok = False
-        for fname in os.listdir(evidence_dir):
+        small_video_warnings: list[str] = []
+        for fname in all_files:
             if fname.lower().endswith(_VIDEO_EXTENSIONS):
                 size = os.path.getsize(os.path.join(evidence_dir, fname))
                 if size >= MIN_VIDEO_SIZE_BYTES:
                     video_ok = True
                     break
-                warnings.append(
+                small_video_warnings.append(
                     f"{fname} is {size // 1024} KB; "
                     f"recommended minimum is {MIN_VIDEO_SIZE_BYTES // (1024 * 1024)} MB."
                 )
         if not video_ok:
+            warnings.extend(small_video_warnings)
             blocking.append(
                 f"No video >= {MIN_VIDEO_SIZE_BYTES // (1024 * 1024)} MB "
                 f"found in {evidence_dir}."
             )
 
         # Screenshot count
-        shots = [
-            f for f in os.listdir(evidence_dir)
-            if f.lower().endswith(_IMAGE_EXTENSIONS)
-        ]
+        shots = [f for f in all_files if f.lower().endswith(_IMAGE_EXTENSIONS)]
         if len(shots) < MIN_SCREENSHOT_COUNT:
             blocking.append(
                 f"Found {len(shots)} screenshot(s); "

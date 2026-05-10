@@ -4,6 +4,7 @@
 """Command line entry point for wp-bug-hunter."""
 
 import os
+import traceback
 
 import typer
 from rich.console import Console
@@ -89,6 +90,7 @@ def scan(
     platform: str = typer.Option("", "--platform", help="Bug bounty platform label stored in the report."),
     skip_network: bool = typer.Option(False, "--skip-network", help="Skip scope and CVE checks (offline mode)."),
     output_dir: str = typer.Option("", "--output-dir", help="Override the reports output directory."),
+    debug: bool = typer.Option(False, "--debug", help="Print full traceback on error."),
 ) -> None:
     """Run the full scan, analyze, verify, and report pipeline for a plugin."""
     try:
@@ -111,7 +113,7 @@ def scan(
             if not scope_check.overall_in_scope:
                 console.print("[yellow]Warning: target not confirmed in scope.[/yellow]")
                 answer = input("Target not confirmed in scope. Continue anyway? [y/N]: ")
-                if answer not in CONFIRM_YES:
+                if answer.strip().lower() not in {"y", "yes"}:
                     console.print("Scan cancelled.")
                     raise typer.Exit(EXIT_OK)
 
@@ -145,4 +147,6 @@ def scan(
         raise typer.Exit(EXIT_OK)
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
+        if debug:
+            traceback.print_exc()
         raise typer.Exit(EXIT_ERROR)

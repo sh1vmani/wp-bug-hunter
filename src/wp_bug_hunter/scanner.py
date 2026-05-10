@@ -26,9 +26,12 @@ from wp_bug_hunter.config import (
 )
 
 # Lines of source shown before and after a finding for display context
-CONTEXT_LINES = 3
+CONTEXT_LINES = 50
 # Wider line window searched for contextual mitigations (nonce checks, etc.)
 CONTEXT_WINDOW = 20
+# Post-context capability check confidence penalty
+POST_CONTEXT_CAP_PENALTY = 20
+_POST_CONTEXT_CAP_RE = re.compile(r"\bcurrent_user_can\s*\(")
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -460,6 +463,12 @@ def _apply_pattern(
     window = lines[win_start:line_idx] + lines[line_idx + 1:win_end]
 
     confidence, reason = _compute_confidence(line, window, pattern)
+
+    if _POST_CONTEXT_CAP_RE.search("\n".join(context_after)):
+        confidence = max(0, confidence - POST_CONTEXT_CAP_PENALTY)
+        reason = (reason + "; " if reason else "") + (
+            "capability check found in post-context, may be protected"
+        )
 
     if confidence < MEDIUM_CONFIDENCE:
         return None

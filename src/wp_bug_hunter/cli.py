@@ -11,10 +11,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from wp_bug_hunter.analyzer import analyze
+from wp_bug_hunter.analyzer import AnalysisResult, analyze
 from wp_bug_hunter.config import EVIDENCE_DIR, TOOL_NAME, VERSION
 from wp_bug_hunter.reporter import generate_report
-from wp_bug_hunter.scanner import ScanResult, scan_plugin
+from wp_bug_hunter.scanner import scan_plugin
 from wp_bug_hunter.scope import ScopeCheck, verify_scope
 from wp_bug_hunter.verifier import VerificationResult, verify_analysis
 
@@ -62,7 +62,7 @@ def _status_for(verification: VerificationResult) -> tuple[str, str]:
 
 
 def _render_summary_table(
-    scan_result: ScanResult,
+    analysis_result: AnalysisResult,
     verifications: list[VerificationResult],
 ) -> None:
     """Render the findings summary table to the console."""
@@ -72,7 +72,10 @@ def _render_summary_table(
     table.add_column("Confidence")
     table.add_column("Status")
 
-    for finding, verification in zip(scan_result.findings, verifications):
+    for walkthrough, verification in zip(analysis_result.walkthroughs, verifications):
+        if not verification.ready:
+            continue
+        finding = walkthrough.finding
         status_label, color = _status_for(verification)
         table.add_row(
             finding.pattern_name,
@@ -138,7 +141,7 @@ def scan(
             analysis_result, verifications, platform=platform, output_dir=output_dir
         )
         console.print(f"Report saved: {report_path}")
-        _render_summary_table(scan_result, verifications)
+        _render_summary_table(analysis_result, verifications)
 
     except typer.Exit:
         raise

@@ -42,6 +42,11 @@ PLATFORM_UNSPECIFIED = "not specified"
 NO_VERIFICATION_NOTE = "No verification result found."
 
 
+def _tc(value: str) -> str:
+    """Escape a value for safe insertion into a markdown table cell."""
+    return str(value).replace("|", r"\|")
+
+
 def generate_report(
     result: AnalysisResult,
     verifications: list[VerificationResult],
@@ -86,9 +91,9 @@ def _format_header(
         "",
         "| Field | Value |",
         "| --- | --- |",
-        f"| Scan date | {today.strftime(DATE_FORMAT)} |",
-        f"| Platform | {platform_value} |",
-        f"| Tool | {TOOL_NAME} {VERSION} |",
+        f"| Scan date | {_tc(today.strftime(DATE_FORMAT))} |",
+        f"| Platform | {_tc(platform_value)} |",
+        f"| Tool | {_tc(TOOL_NAME)} {_tc(VERSION)} |",
         "",
     ]
 
@@ -145,10 +150,10 @@ def _format_finding_section(
         "",
         "| Field | Value |",
         "| --- | --- |",
-        f"| Severity | {finding.severity} |",
-        f"| Confidence | {finding.confidence}% |",
-        f"| CVSS score | {walkthrough.cvss.score} |",
-        f"| CVSS vector | `{walkthrough.cvss.vector}` |",
+        f"| Severity | {_tc(finding.severity)} |",
+        f"| Confidence | {_tc(finding.confidence)}% |",
+        f"| CVSS score | {_tc(walkthrough.cvss.score)} |",
+        f"| CVSS vector | `{_tc(walkthrough.cvss.vector)}` |",
         "",
         "### Description",
         "",
@@ -177,7 +182,7 @@ def _format_cvss_breakdown(cvss: CvssEstimate) -> list[str]:
     ]
     for component in cvss.components:
         lines.append(
-            f"| {component.metric} | {component.value} | {component.explanation} |"
+            f"| {_tc(component.metric)} | {_tc(component.value)} | {_tc(component.explanation)} |"
         )
     lines.append("")
     lines.append(cvss.overall_justification)
@@ -245,21 +250,24 @@ def _format_verification_status(verification: VerificationResult | None) -> list
 def _format_recording_appendix(walkthroughs: list[VerificationWalkthrough]) -> list[str]:
     """Render the recording guide appendix covering every walkthrough."""
     lines: list[str] = ["## Appendix: Recording Guide", ""]
+    if not walkthroughs:
+        return lines
+    first_guide = walkthroughs[0].recording_guide
+    lines.append(f"Software: {first_guide.software}")
+    lines.append("")
+    lines.extend(_format_numbered("OBS Setup", first_guide.obs_setup))
+    lines.extend(_format_numbered("Before Recording", first_guide.before_recording))
     for walkthrough in walkthroughs:
         lines.extend(_format_recording_guide(walkthrough.finding, walkthrough.recording_guide))
     return lines
 
 
 def _format_recording_guide(finding: Finding, guide: RecordingGuide) -> list[str]:
-    """Render a single recording guide block for one finding."""
+    """Render the per-finding recording steps and export settings."""
     lines: list[str] = [
         f"### {finding.pattern_name}",
         "",
-        f"Software: {guide.software}",
-        "",
     ]
-    lines.extend(_format_numbered("OBS Setup", guide.obs_setup))
-    lines.extend(_format_numbered("Before Recording", guide.before_recording))
     lines.extend(_format_numbered("Recording Steps", guide.recording_steps))
     lines.append("#### Export")
     lines.append("")

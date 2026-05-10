@@ -29,9 +29,9 @@ from wp_bug_hunter.config import (
 CONTEXT_LINES = 50
 # Wider line window searched for contextual mitigations (nonce checks, etc.)
 CONTEXT_WINDOW = 20
-# Post-context capability check confidence penalty
-POST_CONTEXT_CAP_PENALTY = 20
-_POST_CONTEXT_CAP_RE = re.compile(r"\bcurrent_user_can\s*\(")
+# Capability check confidence penalty (applied if found in surrounding context)
+CAP_CHECK_PENALTY = 20
+_CAP_CHECK_RE = re.compile(r"\bcurrent_user_can\s*\(")
 # Confidence penalty when no user input source is found in snippet or context_before
 NO_INPUT_SOURCE_PENALTY = 25
 _USER_INPUT_SOURCE_RE = re.compile(
@@ -470,10 +470,10 @@ def _apply_pattern(
 
     confidence, reason = _compute_confidence(line, window, pattern)
 
-    if _POST_CONTEXT_CAP_RE.search("\n".join(context_after)):
-        confidence = max(0, confidence - POST_CONTEXT_CAP_PENALTY)
+    if _CAP_CHECK_RE.search("\n".join(context_before + context_after)):
+        confidence = max(0, confidence - CAP_CHECK_PENALTY)
         reason = (reason + "; " if reason else "") + (
-            "capability check found in post-context, may be protected"
+            "capability check found in surrounding context, may be protected"
         )
 
     if not _USER_INPUT_SOURCE_RE.search(line + "\n" + "\n".join(context_before)):

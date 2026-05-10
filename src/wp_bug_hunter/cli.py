@@ -64,6 +64,8 @@ def _status_for(verification: VerificationResult) -> tuple[str, str]:
 def _render_summary_table(
     analysis_result: AnalysisResult,
     verifications: list[VerificationResult],
+    *,
+    show_all: bool = False,
 ) -> None:
     """Render the findings summary table to the console."""
     table = Table(title="Findings Summary")
@@ -73,7 +75,7 @@ def _render_summary_table(
     table.add_column("Status")
 
     for walkthrough, verification in zip(analysis_result.walkthroughs, verifications):
-        if not verification.ready:
+        if not verification.ready and not show_all:
             continue
         finding = walkthrough.finding
         status_label, color = _status_for(verification)
@@ -95,6 +97,7 @@ def scan(
     output_dir: str = typer.Option("", "--output-dir", help="Override the reports output directory."),
     debug: bool = typer.Option(False, "--debug", help="Print full traceback on error."),
     local_dir: str = typer.Option("", "--local-dir", help="Scan a local SVN/source directory instead of downloading."),
+    show_all: bool = typer.Option(False, "--show-all", help="Include failed findings in report and summary table (research mode)."),
 ) -> None:
     """Run the full scan, analyze, verify, and report pipeline for a plugin."""
     try:
@@ -143,10 +146,10 @@ def scan(
         )
 
         report_path = generate_report(
-            analysis_result, verifications, platform=platform, output_dir=output_dir
+            analysis_result, verifications, platform=platform, output_dir=output_dir, show_all=show_all
         )
         console.print(f"Report saved: {report_path}")
-        _render_summary_table(analysis_result, verifications)
+        _render_summary_table(analysis_result, verifications, show_all=show_all)
 
     except typer.Exit:
         raise

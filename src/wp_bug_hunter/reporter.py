@@ -52,6 +52,7 @@ def generate_report(
     verifications: list[VerificationResult],
     platform: str = "",
     output_dir: str = "",
+    show_all: bool = False,
 ) -> Path:
     """Render a markdown report for the analysis and write it to OUTPUT_DIR."""
     today = datetime.date.today()
@@ -67,10 +68,16 @@ def generate_report(
     lines.extend(_format_executive_summary(result, verifications))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
-        if not verification.ready:
+        if not verification.ready and not show_all:
             continue
         lines.append(SECTION_SEPARATOR)
         lines.append("")
+        if not verification.ready:
+            lines.append(
+                "> **This finding did not pass verification. Evidence is missing or "
+                "confidence is below threshold. Do not submit without manual confirmation.**"
+            )
+            lines.append("")
         lines.extend(_format_finding_section(walkthrough, verification))
 
     lines.append(SECTION_SEPARATOR)

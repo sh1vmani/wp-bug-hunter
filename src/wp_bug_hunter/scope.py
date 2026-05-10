@@ -53,6 +53,7 @@ class ScopeResult:
     program_url: str | None
     confidence: str
     notes: str
+    payout_range: tuple[int, int] | None = None
 
 
 @dataclass
@@ -109,6 +110,34 @@ def _get(
     return None
 
 
+def _parse_patchstack_payout(html: str) -> tuple[int, int] | None:
+    """Extract payout range from dollar amounts found in Patchstack page HTML."""
+    amounts = sorted({int(m.replace(",", "")) for m in re.findall(r"\$(\d[\d,]*)", html)})
+    if not amounts:
+        return None
+    return (amounts[0], amounts[-1]) if len(amounts) > 1 else (amounts[0], amounts[0])
+
+
+def _parse_hackerone_payout(attrs: dict) -> tuple[int, int] | None:
+    """Extract payout range from HackerOne program attributes dict."""
+    try:
+        low = int(float(attrs.get("minimum_bounty") or 0))
+        high = int(float(attrs.get("maximum_bounty") or 0))
+        if high > 0:
+            return (low, high)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def get_platform_payout(scope_results: list[ScopeResult]) -> tuple[int, int] | None:
+    """Return the payout range from the first in-scope result that has one."""
+    for result in scope_results:
+        if result.in_scope and result.payout_range is not None:
+            return result.payout_range
+    return None
+
+
 def check_patchstack_scope(plugin_slug: str, session: requests.Session) -> ScopeResult:
     """
     Check if a plugin is covered by the Patchstack Alliance bug bounty.
@@ -130,6 +159,7 @@ def check_patchstack_scope(plugin_slug: str, session: requests.Session) -> Scope
         )
 
     if resp.status_code == 200:
+        payout_range = _parse_patchstack_payout(resp.text)
         return ScopeResult(
             platform="patchstack",
             in_scope=True,
@@ -137,6 +167,7 @@ def check_patchstack_scope(plugin_slug: str, session: requests.Session) -> Scope
             program_url=PATCHSTACK_ALLIANCE_URL,
             confidence=CONFIDENCE_LIKELY,
             notes=f"Plugin page returned HTTP 200 in Patchstack database at {url}",
+            payout_range=payout_range,
         )
 
     if resp.status_code >= 500:
@@ -258,6 +289,7 @@ def check_hackerone_scope(query: str, session: requests.Session) -> ScopeResult:
             handle = str(attrs.get("handle", "")).lower()
             if query_lower in name or query_lower in handle:
                 program_url = f"https://hackerone.com/{attrs.get('handle', '')}"
+                payout_range = _parse_hackerone_payout(attrs)
                 return ScopeResult(
                     platform="hackerone",
                     in_scope=True,
@@ -265,6 +297,7 @@ def check_hackerone_scope(query: str, session: requests.Session) -> ScopeResult:
                     program_url=program_url,
                     confidence=CONFIDENCE_LIKELY,
                     notes=f"Partial match in HackerOne programs: '{attrs.get('name')}'",
+                    payout_range=payout_range,
                 )
 
     return ScopeResult(

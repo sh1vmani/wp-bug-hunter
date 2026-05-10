@@ -61,6 +61,26 @@ def _status_for(verification: VerificationResult) -> tuple[str, str]:
     return STATUS_PASS, COLOR_PASS
 
 
+def _short_pattern(name: str) -> str:
+    """Map a full pattern name to a short display label for the summary table."""
+    replacements = {
+        "Cross-Site Request Forgery (CSRF)": "CSRF",
+        "Cross-Site Scripting (XSS)": "XSS",
+        "SQL Injection": "SQLi",
+        "PHP Object Injection": "PHP ObjInject",
+        "Arbitrary File Upload": "File Upload",
+        "Privilege Escalation": "Priv Escalation",
+        "Insecure Direct Object Reference": "IDOR",
+        "Remote Code Execution": "RCE",
+        "File Inclusion": "File Inclusion",
+        "Open Redirect": "Open Redirect",
+        "Insecure Deserialization": "Deserial.",
+        "Path Traversal": "Path Traversal",
+        "Server-Side Request Forgery": "SSRF",
+    }
+    return replacements.get(name, name[:20])
+
+
 def _render_summary_table(
     analysis_result: AnalysisResult,
     verifications: list[VerificationResult],
@@ -69,11 +89,11 @@ def _render_summary_table(
 ) -> None:
     """Render the findings summary table to the console."""
     table = Table(title="Findings Summary")
-    table.add_column("Pattern")
-    table.add_column("Severity")
-    table.add_column("Confidence")
-    table.add_column("Status")
-    table.add_column("Est. Payout")
+    table.add_column("Pattern", min_width=14, max_width=16, no_wrap=True)
+    table.add_column("Severity", min_width=8, max_width=8, no_wrap=True)
+    table.add_column("Confidence", min_width=10, max_width=10, no_wrap=True)
+    table.add_column("Status", min_width=6, max_width=6, no_wrap=True)
+    table.add_column("Est. Payout", min_width=18, max_width=22, no_wrap=True)
 
     pairs = [
         (wt, v)
@@ -85,7 +105,7 @@ def _render_summary_table(
         finding = walkthrough.finding
         status_label, color = _status_for(verification)
         table.add_row(
-            finding.pattern_name,
+            _short_pattern(finding.pattern_name),
             finding.severity,
             f"{finding.confidence}%",
             f"[{color}]{status_label}[/{color}]",

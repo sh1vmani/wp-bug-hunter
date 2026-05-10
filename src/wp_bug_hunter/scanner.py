@@ -334,6 +334,9 @@ def _get_plugin_info(slug: str, session: requests.Session) -> dict:
 def _safe_extract(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:
     """Extract all zip members to dest, skipping entries with path traversal sequences."""
     for member in zf.infolist():
+        # Skip symlink entries; their targets are not validated and could point outside dest.
+        if member.external_attr >> 16 & 0o170000 == 0o120000:
+            continue
         target = dest / member.filename
         try:
             target.resolve().relative_to(dest.resolve())

@@ -26,7 +26,7 @@ from wp_bug_hunter.config import (
 )
 
 # Lines of source shown before and after a finding for display context
-CONTEXT_LINES = 50
+CONTEXT_LINES = 100
 # Wider line window searched for contextual mitigations (nonce checks, etc.)
 CONTEXT_WINDOW = 20
 # Capability check confidence penalty (applied if found in surrounding context)

@@ -65,20 +65,14 @@ def _render_summary_table(
     verifications: list[VerificationResult],
 ) -> None:
     """Render the findings summary table to the console."""
-    by_pattern = {v.pattern_name: v for v in verifications}
-
     table = Table(title="Findings Summary")
     table.add_column("Pattern")
     table.add_column("Severity")
     table.add_column("Confidence")
     table.add_column("Status")
 
-    for finding in scan_result.findings:
-        verification = by_pattern.get(finding.pattern_name)
-        if verification is None:
-            status_label, color = STATUS_FAIL, COLOR_FAIL
-        else:
-            status_label, color = _status_for(verification)
+    for finding, verification in zip(scan_result.findings, verifications):
+        status_label, color = _status_for(verification)
         table.add_row(
             finding.pattern_name,
             finding.severity,

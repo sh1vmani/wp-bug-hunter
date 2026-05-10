@@ -57,16 +57,13 @@ def generate_report(
     filename = f"{result.plugin_slug}_{today.strftime(FILENAME_DATE_FORMAT)}.md"
     report_path = output_path / filename
 
-    verification_lookup = {v.pattern_name: v for v in verifications}
-
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
-    lines.extend(_format_executive_summary(result, verification_lookup))
+    lines.extend(_format_executive_summary(result, verifications))
 
-    for walkthrough in result.walkthroughs:
+    for walkthrough, verification in zip(result.walkthroughs, verifications):
         lines.append(SECTION_SEPARATOR)
         lines.append("")
-        verification = verification_lookup.get(walkthrough.finding.pattern_name)
         lines.extend(_format_finding_section(walkthrough, verification))
 
     lines.append(SECTION_SEPARATOR)
@@ -98,15 +95,11 @@ def _format_header(
 
 def _format_executive_summary(
     result: AnalysisResult,
-    verification_lookup: dict[str, VerificationResult],
+    verifications: list[VerificationResult],
 ) -> list[str]:
     """Render the executive summary section."""
     total = len(result.walkthroughs)
-    passed = sum(
-        1
-        for w in result.walkthroughs
-        if (v := verification_lookup.get(w.finding.pattern_name)) and v.ready
-    )
+    passed = sum(1 for v in verifications if v.ready)
     risk_level = _overall_risk_level(result.walkthroughs)
     summary_paragraph = (
         f"Scan of {result.plugin_slug} {result.plugin_version} produced {total} "

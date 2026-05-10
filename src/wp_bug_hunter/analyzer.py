@@ -830,7 +830,10 @@ _FALLBACK_TEMPLATE = _PatternTemplate(
 
 def _fill(text: str, **kwargs: str) -> str:
     """Substitute named placeholders in a template string."""
-    return text.format(**kwargs)
+    result = text
+    for key, value in kwargs.items():
+        result = result.replace(f"{{{key}}}", str(value))
+    return result
 
 
 def _build_plugin_install(slug: str, version: str) -> list[str]:
@@ -871,7 +874,7 @@ def analyze(scan_result: ScanResult) -> AnalysisResult:
             "version": scan_result.plugin_version,
             "file": finding.file_path,
             "line": str(finding.line_number),
-            "snippet": finding.snippet,
+            "snippet": finding.snippet.replace("|", r"\|"),
         }
 
         cvss = CvssEstimate(

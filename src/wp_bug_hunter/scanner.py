@@ -38,6 +38,15 @@ _USER_INPUT_SOURCE_RE = re.compile(
     r"\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER)\b"
     r"|\bget_(option|post_meta|user_meta)\s*\("
 )
+# Privilege Escalation pattern specific adjustments
+PRIV_ESC_PATTERN_NAME = "Privilege Escalation"
+MANAGE_OPTIONS_PENALTY = 40
+NOPRIV_AJAX_BONUS = 15
+CONFIDENCE_CAP = 95
+COMMENTED_HOOK_PENALTY = 20
+_MANAGE_OPTIONS_RE = re.compile(r"\bmanage_options\b")
+_NOPRIV_AJAX_RE = re.compile(r"wp_ajax_nopriv_")
+_COMMENTED_HOOK_RE = re.compile(r"//\s*add_action")
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -481,6 +490,24 @@ def _apply_pattern(
         reason = (reason + "; " if reason else "") + (
             "no user input source detected in snippet or context, possible false positive"
         )
+
+    if pattern.name == PRIV_ESC_PATTERN_NAME:
+        ctx_all = "\n".join(context_before + context_after)
+        if _MANAGE_OPTIONS_RE.search(ctx_all):
+            confidence = max(0, confidence - MANAGE_OPTIONS_PENALTY)
+            reason = (reason + "; " if reason else "") + (
+                "manage_options capability required, admin-only context"
+            )
+        if _NOPRIV_AJAX_RE.search("\n".join(context_before)):
+            confidence = min(CONFIDENCE_CAP, confidence + NOPRIV_AJAX_BONUS)
+            reason = (reason + "; " if reason else "") + (
+                "nopriv AJAX hook found, unauthenticated access confirmed"
+            )
+        if _COMMENTED_HOOK_RE.search(ctx_all):
+            confidence = max(0, confidence - COMMENTED_HOOK_PENALTY)
+            reason = (reason + "; " if reason else "") + (
+                "hook is commented out, code may be unreachable"
+            )
 
     if confidence < MEDIUM_CONFIDENCE:
         return None

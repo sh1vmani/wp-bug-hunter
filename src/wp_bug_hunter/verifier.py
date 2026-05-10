@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import requests
 
 from wp_bug_hunter.analyzer import AnalysisResult, VerificationWalkthrough
-from wp_bug_hunter.config import HIGH_CONFIDENCE, REQUEST_TIMEOUT, WPSCAN_API_URL
+from wp_bug_hunter.config import HIGH_CONFIDENCE, REQUEST_TIMEOUT
 from wp_bug_hunter.scope import ScopeCheck, verify_scope
 
 
@@ -21,7 +21,10 @@ MIN_SCREENSHOT_COUNT: int = 3
 
 _VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".mkv")
 _IMAGE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg")
-_WPSCAN_API_KEY_ENV: str = "WPSCAN_API_KEY"
+_WPSCAN_PUBLIC_DB_URL: str = (
+    "https://raw.githubusercontent.com/wpscanteam/wpscan-db/master/plugins.json"
+)
+_wpscan_db: dict | None = None
 
 
 @dataclass
@@ -59,35 +62,26 @@ def _wpscan_cve_check(
     plugin_slug: str,
     session: requests.Session,
 ) -> tuple[bool, str]:
-    """Return (clear, message) after querying WPScan for known vulnerabilities.
+    """Return (clear, message) after checking the public WPScan vulnerability database.
 
     clear=True means no known CVEs were found or the check was inconclusive.
-    Requires the WPSCAN_API_KEY environment variable to be set.
+    The database is downloaded once per process and cached in _wpscan_db.
     """
-    api_key = os.environ.get(_WPSCAN_API_KEY_ENV)
-    if not api_key:
-        return True, f"{_WPSCAN_API_KEY_ENV} not set; CVE cross-reference skipped."
+    global _wpscan_db
+    if _wpscan_db is None:
+        try:
+            resp = session.get(_WPSCAN_PUBLIC_DB_URL, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            _wpscan_db = resp.json()
+        except requests.RequestException as exc:
+            return True, f"WPScan public DB fetch failed ({exc}); CVE check skipped."
 
-    url = f"{WPSCAN_API_URL}/plugins/{plugin_slug}"
-    try:
-        resp = session.get(
-            url,
-            headers={"Authorization": f"Token token={api_key}"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if resp.status_code == 404:
-            return True, ""
-        if resp.status_code != 200:
-            return True, f"WPScan API returned {resp.status_code}; CVE check skipped."
-        data = resp.json()
-        plugin_data = data.get(plugin_slug) or next(iter(data.values()), {})
-        vulns = plugin_data.get("vulnerabilities", [])
-        if not vulns:
-            return True, ""
-        titles = "; ".join(v.get("title", "unknown") for v in vulns[:3])
-        return False, f"WPScan lists {len(vulns)} known vulnerability(s): {titles}"
-    except requests.RequestException as exc:
-        return True, f"WPScan request failed ({exc}); CVE check skipped."
+    plugin_data = _wpscan_db.get(plugin_slug, {})
+    vulns = plugin_data.get("vulnerabilities", [])
+    if not vulns:
+        return True, ""
+    titles = "; ".join(v.get("title", "unknown") for v in vulns[:3])
+    return False, f"WPScan lists {len(vulns)} known vulnerability(s): {titles}"
 
 
 def verify_walkthrough(

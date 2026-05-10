@@ -14,9 +14,6 @@ PLATFORMS = {
     "intigriti": "https://app.intigriti.com/programs",
 }
 
-# WPScan API base URL (free tier available)
-WPSCAN_API_URL = "https://wpscan.com/api/v3"
-
 # WordPress plugin source
 WP_PLUGIN_API = "https://api.wordpress.org/plugins/info/1.2/"
 WP_PLUGIN_SVN = "https://plugins.svn.wordpress.org/"

@@ -12,7 +12,7 @@ import requests
 
 from wp_bug_hunter.analyzer import AnalysisResult, VerificationWalkthrough
 from wp_bug_hunter.config import HIGH_CONFIDENCE, REQUEST_TIMEOUT, WPSCAN_API_URL
-from wp_bug_hunter.scope import verify_scope
+from wp_bug_hunter.scope import ScopeCheck, verify_scope
 
 
 MIN_DESCRIPTION_LENGTH: int = 200
@@ -80,7 +80,8 @@ def _wpscan_cve_check(
         if resp.status_code != 200:
             return True, f"WPScan API returned {resp.status_code}; CVE check skipped."
         data = resp.json()
-        vulns = data.get(plugin_slug, {}).get("vulnerabilities", [])
+        plugin_data = data.get(plugin_slug) or next(iter(data.values()), {})
+        vulns = plugin_data.get("vulnerabilities", [])
         if not vulns:
             return True, ""
         titles = "; ".join(v.get("title", "unknown") for v in vulns[:3])
@@ -96,11 +97,15 @@ def verify_walkthrough(
     evidence_dir: str,
     *,
     skip_network: bool = False,
+    scope_check: ScopeCheck | None = None,
+    cve_result: tuple[bool, str] | None = None,
 ) -> VerificationResult:
     """Run the pre-submission checklist on one analyzed finding.
 
     Pass skip_network=True to skip scope and CVE checks when working offline;
     those checks become warnings instead of potential blockers.
+    scope_check and cve_result may be pre-computed by verify_analysis to avoid
+    redundant HTTP calls when processing multiple findings for the same plugin.
     """
     blocking: list[str] = []
     warnings: list[str] = []
@@ -171,13 +176,16 @@ def verify_walkthrough(
         warnings.append("Scope check skipped (offline mode).")
         warnings.append("CVE cross-reference skipped (offline mode).")
     else:
-        scope = verify_scope(plugin_slug)
-        if not scope.overall_in_scope:
+        if scope_check is None:
+            scope_check = verify_scope(plugin_slug)
+        if not scope_check.overall_in_scope:
             blocking.append(
                 f"'{plugin_slug}' was not found in scope on any supported platform. "
                 "Confirm the target is accepting reports before submitting."
             )
-        cve_clear, cve_msg = _wpscan_cve_check(plugin_slug, requests.Session())
+        if cve_result is None:
+            cve_result = _wpscan_cve_check(plugin_slug, requests.Session())
+        cve_clear, cve_msg = cve_result
         if not cve_clear:
             blocking.append(
                 cve_msg + " Verify this is a new variant before submitting."
@@ -202,6 +210,11 @@ def verify_analysis(
     skip_network: bool = False,
 ) -> list[VerificationResult]:
     """Run the submission checklist on every finding in an AnalysisResult."""
+    scope_check: ScopeCheck | None = None
+    cve_result: tuple[bool, str] | None = None
+    if not skip_network:
+        scope_check = verify_scope(result.plugin_slug)
+        cve_result = _wpscan_cve_check(result.plugin_slug, requests.Session())
     return [
         verify_walkthrough(
             wt,
@@ -209,6 +222,8 @@ def verify_analysis(
             result.plugin_version,
             evidence_dir,
             skip_network=skip_network,
+            scope_check=scope_check,
+            cve_result=cve_result,
         )
         for wt in result.walkthroughs
     ]

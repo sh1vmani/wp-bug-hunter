@@ -14,7 +14,7 @@ from rich.table import Table
 from wp_bug_hunter.analyzer import AnalysisResult, analyze
 from wp_bug_hunter.config import EVIDENCE_DIR, TOOL_NAME, VERSION
 from wp_bug_hunter.reporter import generate_report
-from wp_bug_hunter.scanner import scan_plugin
+from wp_bug_hunter.scanner import scan_local, scan_plugin
 from wp_bug_hunter.scope import ScopeCheck, verify_scope
 from wp_bug_hunter.verifier import VerificationResult, verify_analysis
 
@@ -94,6 +94,7 @@ def scan(
     skip_network: bool = typer.Option(False, "--skip-network", help="Skip scope and CVE checks (offline mode)."),
     output_dir: str = typer.Option("", "--output-dir", help="Override the reports output directory."),
     debug: bool = typer.Option(False, "--debug", help="Print full traceback on error."),
+    local_dir: str = typer.Option("", "--local-dir", help="Scan a local SVN/source directory instead of downloading."),
 ) -> None:
     """Run the full scan, analyze, verify, and report pipeline for a plugin."""
     try:
@@ -120,7 +121,11 @@ def scan(
                     console.print("Scan cancelled.")
                     raise typer.Exit(EXIT_OK)
 
-        scan_result = scan_plugin(plugin_slug)
+        if local_dir:
+            console.print(f"Using local directory: {local_dir}")
+            scan_result = scan_local(plugin_slug, local_dir)
+        else:
+            scan_result = scan_plugin(plugin_slug)
         console.print(
             f"Scanning {plugin_slug}... "
             f"({scan_result.files_scanned} files scanned, {len(scan_result.findings)} findings)"

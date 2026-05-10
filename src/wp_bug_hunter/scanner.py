@@ -519,6 +519,48 @@ def _rank_findings(findings: list[Finding]) -> list[Finding]:
     )
 
 
+def _read_version_from_dir(source_dir: pathlib.Path, slug: str) -> str:
+    """Read 'Version:' header from readme.txt or <slug>.php; return 'unknown' if absent."""
+    for candidate in (source_dir / "readme.txt", source_dir / f"{slug}.php"):
+        try:
+            for line in candidate.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = re.match(r"(?i)version\s*:\s*(.+)", line.strip())
+                if m:
+                    return m.group(1).strip()
+        except OSError:
+            continue
+    return "unknown"
+
+
+def scan_local(slug: str, source_dir: str) -> ScanResult:
+    """Scan a local directory of PHP files without downloading from wordpress.org.
+
+    source_dir should point to a directory containing the plugin's PHP files,
+    such as the trunk/ or tags/x.y.z/ checkout from the SVN repository.
+    """
+    plugin_root = pathlib.Path(source_dir).resolve()
+    version = _read_version_from_dir(plugin_root, slug)
+
+    findings: list[Finding] = []
+    files_scanned = 0
+
+    for php_file in plugin_root.rglob(f"*{PHP_EXTENSION}"):
+        try:
+            if php_file.stat().st_size > MAX_PHP_FILE_SIZE:
+                continue
+        except OSError:
+            continue
+        findings.extend(_scan_php_file(php_file, plugin_root))
+        files_scanned += 1
+
+    return ScanResult(
+        plugin_slug=slug,
+        plugin_version=version,
+        findings=_rank_findings(findings),
+        files_scanned=files_scanned,
+    )
+
+
 def scan_plugin(slug: str) -> ScanResult:
     """
     Download a WordPress plugin from wordpress.org and scan all PHP files

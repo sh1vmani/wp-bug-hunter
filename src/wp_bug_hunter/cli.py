@@ -14,7 +14,7 @@ from rich.table import Table
 from wp_bug_hunter.analyzer import AnalysisResult, analyze
 from wp_bug_hunter.config import EVIDENCE_DIR, TOOL_NAME, VERSION
 from wp_bug_hunter.reporter import generate_report
-from wp_bug_hunter.scanner import scan_local, scan_plugin
+from wp_bug_hunter.scanner import checkout_and_scan, scan_local, scan_plugin
 from wp_bug_hunter.scope import ScopeCheck, verify_scope
 from wp_bug_hunter.verifier import VerificationResult, verify_analysis
 
@@ -128,7 +128,14 @@ def scan(
             console.print(f"Using local directory: {local_dir}")
             scan_result = scan_local(plugin_slug, local_dir)
         else:
-            scan_result = scan_plugin(plugin_slug)
+            console.print(f"Checking out {plugin_slug} from WordPress SVN...")
+            try:
+                scan_result = checkout_and_scan(plugin_slug)
+            except FileNotFoundError:
+                console.print(
+                    "[yellow]SVN not found, falling back to wordpress.org zip download.[/yellow]"
+                )
+                scan_result = scan_plugin(plugin_slug)
         console.print(
             f"Scanning {plugin_slug}... "
             f"({scan_result.files_scanned} files scanned, {len(scan_result.findings)} findings)"

@@ -6,6 +6,7 @@
 import pathlib
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import zipfile
@@ -573,6 +574,26 @@ def scan_local(slug: str, source_dir: str) -> ScanResult:
         findings=_rank_findings(findings),
         files_scanned=files_scanned,
     )
+
+
+def checkout_and_scan(slug: str) -> ScanResult:
+    """Check out the plugin trunk from WordPress SVN and scan it.
+
+    Raises FileNotFoundError if svn is not installed.
+    Raises subprocess.CalledProcessError if the checkout fails.
+    """
+    svn_url = f"https://plugins.svn.wordpress.org/{slug}/trunk"
+    tmp = tempfile.mkdtemp(prefix="wp-bug-hunter-svn-")
+    try:
+        subprocess.run(
+            ["svn", "checkout", svn_url, tmp],
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+        return scan_local(slug, tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def scan_plugin(slug: str) -> ScanResult:

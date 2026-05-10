@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import requests
 
 from wp_bug_hunter.analyzer import AnalysisResult, VerificationWalkthrough
-from wp_bug_hunter.config import HIGH_CONFIDENCE, REQUEST_TIMEOUT
+from wp_bug_hunter.config import HIGH_CONFIDENCE, PURSUIT_CONFIDENCE, REQUEST_TIMEOUT
 from wp_bug_hunter.scope import ScopeCheck, verify_scope
 
 
@@ -39,6 +39,8 @@ class VerificationResult:
     warnings: list[str] = field(default_factory=list)
     payout_estimate: str = ""
     payout_from_platform: bool = False
+    cve_found: bool = False
+    confidence_passed: bool = False
 
     def summary(self) -> None:
         """Print a formatted pass/fail checklist to stdout."""
@@ -105,6 +107,8 @@ def verify_walkthrough(
     """
     blocking: list[str] = []
     warnings: list[str] = []
+    confidence_passed = walkthrough.finding.confidence >= PURSUIT_CONFIDENCE
+    cve_found = False
 
     # Plugin version recorded
     if not plugin_version or plugin_version.strip().lower() == "unknown":
@@ -184,6 +188,7 @@ def verify_walkthrough(
             cve_result = _wpscan_cve_check(plugin_slug, requests.Session())
         cve_clear, cve_msg = cve_result
         if not cve_clear:
+            cve_found = True
             blocking.append(
                 cve_msg + " Verify this is a new variant before submitting."
             )
@@ -199,6 +204,8 @@ def verify_walkthrough(
         warnings=warnings,
         payout_estimate=walkthrough.payout_estimate,
         payout_from_platform=walkthrough.payout_from_platform,
+        cve_found=cve_found,
+        confidence_passed=confidence_passed,
     )
 
 

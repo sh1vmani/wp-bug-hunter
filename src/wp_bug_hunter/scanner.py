@@ -585,12 +585,14 @@ def checkout_and_scan(slug: str) -> ScanResult:
     svn_url = f"https://plugins.svn.wordpress.org/{slug}/trunk"
     tmp = tempfile.mkdtemp(prefix="wp-bug-hunter-svn-")
     try:
-        subprocess.run(
-            ["svn", "checkout", svn_url, tmp],
-            check=True,
-            capture_output=True,
-            timeout=300,
-        )
+        with open(os.devnull, "w") as devnull:
+            subprocess.run(
+                ["svn", "checkout", svn_url, tmp],
+                check=True,
+                stdout=devnull,
+                stderr=devnull,
+                timeout=300,
+            )
         return scan_local(slug, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

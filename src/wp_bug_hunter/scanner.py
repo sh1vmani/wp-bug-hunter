@@ -329,6 +329,7 @@ def _get_plugin_info(slug: str, session: requests.Session) -> dict:
                 time.sleep(RATE_LIMIT_DELAY)
             else:
                 raise
+    raise RuntimeError(f"Plugin info fetch failed after {MAX_RETRIES} attempt(s) for '{slug}'.")
 
 
 def _safe_extract(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:
@@ -534,7 +535,9 @@ def scan_plugin(slug: str) -> ScanResult:
     download_url = str(info.get("download_link", ""))
 
     if not download_url:
-        raise ValueError(f"No download link found for plugin '{slug}'")
+        api_error = info.get("error", "")
+        detail = f": {api_error}" if api_error else ""
+        raise ValueError(f"No download link found for plugin '{slug}'{detail}")
 
     plugin_dir = _download_and_extract(slug, download_url, session)
     tmp_parent = plugin_dir.parent
@@ -544,6 +547,11 @@ def scan_plugin(slug: str) -> ScanResult:
         files_scanned = 0
 
         for php_file in plugin_dir.rglob(f"*{PHP_EXTENSION}"):
+            try:
+                if php_file.stat().st_size > MAX_PHP_FILE_SIZE:
+                    continue
+            except OSError:
+                continue
             findings.extend(_scan_php_file(php_file, plugin_dir))
             files_scanned += 1
 

@@ -249,7 +249,7 @@ def _format_verification_status(verification: VerificationResult | None) -> list
 
 
 def _format_recording_appendix(walkthroughs: list[VerificationWalkthrough]) -> list[str]:
-    """Render the recording guide appendix covering every walkthrough."""
+    """Render the recording guide appendix with one block per unique pattern name."""
     lines: list[str] = ["## Appendix: Recording Guide", ""]
     if not walkthroughs:
         return lines
@@ -258,7 +258,12 @@ def _format_recording_appendix(walkthroughs: list[VerificationWalkthrough]) -> l
     lines.append("")
     lines.extend(_format_numbered("OBS Setup", first_guide.obs_setup))
     lines.extend(_format_numbered("Before Recording", first_guide.before_recording))
+    seen: set[str] = set()
     for walkthrough in walkthroughs:
+        name = walkthrough.finding.pattern_name
+        if name in seen:
+            continue
+        seen.add(name)
         lines.extend(_format_recording_guide(walkthrough.finding, walkthrough.recording_guide))
     return lines
 

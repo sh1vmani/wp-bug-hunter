@@ -68,17 +68,19 @@ def generate_report(
     filename = f"{result.plugin_slug}_{today.strftime(FILENAME_DATE_FORMAT)}.md"
     report_path = output_path / filename
 
-    verified_pairs = [
-        (wt, v) for wt, v in zip(result.walkthroughs, verifications) if v.ready
-    ]
-    total_payout_low  = sum(wt.payout_low  for wt, _ in verified_pairs)
-    total_payout_high = sum(wt.payout_high for wt, _ in verified_pairs)
+    all_pairs = list(zip(result.walkthroughs, verifications))
+    verified_pairs = [(wt, v) for wt, v in all_pairs if v.ready]
+    verified_payout_low  = sum(wt.payout_low  for wt, _ in verified_pairs)
+    verified_payout_high = sum(wt.payout_high for wt, _ in verified_pairs)
+    all_payout_low  = sum(wt.payout_low  for wt, _ in all_pairs)
+    all_payout_high = sum(wt.payout_high for wt, _ in all_pairs)
 
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
     lines.extend(_format_executive_summary(
         result, verifications, show_all=show_all,
-        total_payout_low=total_payout_low, total_payout_high=total_payout_high,
+        verified_payout_low=verified_payout_low, verified_payout_high=verified_payout_high,
+        all_payout_low=all_payout_low, all_payout_high=all_payout_high,
     ))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
@@ -125,8 +127,10 @@ def _format_executive_summary(
     result: AnalysisResult,
     verifications: list[VerificationResult],
     show_all: bool = False,
-    total_payout_low: int = 0,
-    total_payout_high: int = 0,
+    verified_payout_low: int = 0,
+    verified_payout_high: int = 0,
+    all_payout_low: int = 0,
+    all_payout_high: int = 0,
 ) -> list[str]:
     """Render the executive summary section."""
     passed = sum(1 for v in verifications if v.ready)
@@ -144,12 +148,24 @@ def _format_executive_summary(
             f"finding(s) ready to submit. Overall risk level "
             f"is rated {risk_level} based on the highest CVSS score across all findings."
         )
+    payout_lines: list[str] = []
+    if show_all:
+        payout_lines.append(
+            f"- Total estimated payout (verified findings): ${verified_payout_low:,} - ${verified_payout_high:,}"
+        )
+        payout_lines.append(
+            f"- Total estimated payout (all findings): ${all_payout_low:,} - ${all_payout_high:,}"
+        )
+    else:
+        payout_lines.append(
+            f"- Total estimated payout: ${verified_payout_low:,} - ${verified_payout_high:,}"
+        )
     return [
         "## Executive Summary",
         "",
         f"- Total findings: {total_scanned if show_all else passed}",
         f"- Overall risk level: {risk_level}",
-        f"- Total estimated payout: ${total_payout_low:,} - ${total_payout_high:,}",
+        *payout_lines,
         "",
         summary_paragraph,
         "",

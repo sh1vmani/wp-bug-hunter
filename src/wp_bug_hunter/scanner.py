@@ -36,7 +36,6 @@ _CAP_CHECK_RE = re.compile(r"\bcurrent_user_can\s*\(")
 NO_INPUT_SOURCE_PENALTY = 25
 _USER_INPUT_SOURCE_RE = re.compile(
     r"\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER)\b"
-    r"|\bget_(option|post_meta|user_meta)\s*\("
 )
 # Privilege Escalation pattern specific adjustments
 PRIV_ESC_PATTERN_NAME = "Privilege Escalation"

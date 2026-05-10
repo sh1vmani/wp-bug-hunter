@@ -55,6 +55,13 @@ _UPGRADE_FILENAME_RE = re.compile(
     r"[\\/](upgrade|install|uninstall|activate|deactivate)\.php$",
     re.IGNORECASE,
 )
+# HTTP trigger detection (only Privilege Escalation pattern uses these)
+HTTP_TRIGGER_PENALTY = 50
+SHORTCODE_BONUS = 10
+_AJAX_ANY_RE = re.compile(r"\bwp_ajax(_nopriv)?_\w+")
+_REST_ROUTE_RE = re.compile(r"\bregister_rest_route\s*\(")
+_SHORTCODE_HOOK_RE = re.compile(r"\badd_shortcode\s*\(")
+_DIRECT_BOOTSTRAP_RE = re.compile(r"(?:wp-load|wp-blog-header)\.php")
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -520,6 +527,22 @@ def _apply_pattern(
             confidence = max(0, confidence - UPGRADE_ROUTINE_PENALTY)
             reason = (reason + "; " if reason else "") + (
                 "upgrade or activation routine, admin-only by WordPress contract"
+            )
+        has_http_trigger = (
+            _AJAX_ANY_RE.search(ctx_all)
+            or _REST_ROUTE_RE.search(ctx_all)
+            or _SHORTCODE_HOOK_RE.search(ctx_all)
+            or _DIRECT_BOOTSTRAP_RE.search(ctx_all)
+        )
+        if not has_http_trigger:
+            confidence = max(0, confidence - HTTP_TRIGGER_PENALTY)
+            reason = (reason + "; " if reason else "") + (
+                "no HTTP trigger point found in context, function may be unreachable from network"
+            )
+        if _SHORTCODE_HOOK_RE.search(ctx_all):
+            confidence = min(CONFIDENCE_CAP, confidence + SHORTCODE_BONUS)
+            reason = (reason + "; " if reason else "") + (
+                "shortcode handler, potentially triggerable by any user who can edit content"
             )
 
     if confidence < MEDIUM_CONFIDENCE:

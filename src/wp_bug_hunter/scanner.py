@@ -47,6 +47,14 @@ COMMENTED_HOOK_PENALTY = 20
 _MANAGE_OPTIONS_RE = re.compile(r"\bmanage_options\b")
 _NOPRIV_AJAX_RE = re.compile(r"wp_ajax_nopriv_")
 _COMMENTED_HOOK_RE = re.compile(r"//\s*add_action")
+UPGRADE_ROUTINE_PENALTY = 40
+_UPGRADE_ROUTINE_RE = re.compile(
+    r"\b(register_activation_hook|register_deactivation_hook|upgrader_process_complete|plugin_action_links)\b"
+)
+_UPGRADE_FILENAME_RE = re.compile(
+    r"[\\/](upgrade|install|uninstall|activate|deactivate)\.php$",
+    re.IGNORECASE,
+)
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -507,6 +515,11 @@ def _apply_pattern(
             confidence = max(0, confidence - COMMENTED_HOOK_PENALTY)
             reason = (reason + "; " if reason else "") + (
                 "hook is commented out, code may be unreachable"
+            )
+        if _UPGRADE_ROUTINE_RE.search(ctx_all) or _UPGRADE_FILENAME_RE.search(rel_path):
+            confidence = max(0, confidence - UPGRADE_ROUTINE_PENALTY)
+            reason = (reason + "; " if reason else "") + (
+                "upgrade or activation routine, admin-only by WordPress contract"
             )
 
     if confidence < MEDIUM_CONFIDENCE:

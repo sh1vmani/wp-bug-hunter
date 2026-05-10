@@ -20,7 +20,7 @@ from wp_bug_hunter.config import (
     REQUEST_TIMEOUT,
     MAX_RETRIES,
     RATE_LIMIT_DELAY,
-    LOW_CONFIDENCE,
+    MEDIUM_CONFIDENCE,
 )
 
 # Lines of source shown before and after a finding for display context
@@ -459,7 +459,7 @@ def _apply_pattern(
 
     confidence, reason = _compute_confidence(line, window, pattern)
 
-    if confidence < LOW_CONFIDENCE:
+    if confidence < MEDIUM_CONFIDENCE:
         return None
 
     return Finding(

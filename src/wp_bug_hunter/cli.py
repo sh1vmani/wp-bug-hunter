@@ -15,7 +15,7 @@ from wp_bug_hunter.analyzer import AnalysisResult, analyze
 from wp_bug_hunter.config import EVIDENCE_DIR, TOOL_NAME, VERSION
 from wp_bug_hunter.reporter import generate_report
 from wp_bug_hunter.scanner import checkout_and_scan, scan_local, scan_plugin
-from wp_bug_hunter.scope import ScopeCheck, verify_scope
+from wp_bug_hunter.scope import ScopeCheck, get_platform_payout, verify_scope
 from wp_bug_hunter.verifier import VerificationResult, verify_analysis
 
 
@@ -73,10 +73,15 @@ def _render_summary_table(
     table.add_column("Severity")
     table.add_column("Confidence")
     table.add_column("Status")
+    table.add_column("Est. Payout")
 
-    for walkthrough, verification in zip(analysis_result.walkthroughs, verifications):
-        if not verification.ready and not show_all:
-            continue
+    pairs = [
+        (wt, v)
+        for wt, v in zip(analysis_result.walkthroughs, verifications)
+        if v.ready or show_all
+    ]
+    pairs.sort(key=lambda p: p[0].payout_high, reverse=True)
+    for walkthrough, verification in pairs:
         finding = walkthrough.finding
         status_label, color = _status_for(verification)
         table.add_row(
@@ -84,6 +89,7 @@ def _render_summary_table(
             finding.severity,
             f"{finding.confidence}%",
             f"[{color}]{status_label}[/{color}]",
+            walkthrough.payout_estimate,
         )
 
     console.print(table)
@@ -145,7 +151,8 @@ def scan(
             raise typer.Exit(EXIT_OK)
 
         console.print(f"Analyzing {len(scan_result.findings)} finding(s)...")
-        analysis_result = analyze(scan_result)
+        payout_range = get_platform_payout(scope_check.results) if not skip_network else None
+        analysis_result = analyze(scan_result, payout_range=payout_range)
 
         console.print(f"Verifying {len(scan_result.findings)} finding(s)...")
         verifications = verify_analysis(

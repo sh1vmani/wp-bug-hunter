@@ -466,11 +466,28 @@ def _compute_confidence(
     return max(0, min(100, score)), "; ".join(reasons)
 
 
+def _file_has_http_trigger(lines: list[str]) -> bool:
+    """Return True if any line in the file registers an HTTP entry point.
+
+    Detects AJAX hooks (wp_ajax_*, wp_ajax_nopriv_*), REST routes
+    (register_rest_route), shortcodes (add_shortcode), or direct WordPress
+    bootstrap (require/include of wp-load.php or wp-blog-header.php).
+    """
+    text = "\n".join(lines)
+    return bool(
+        _AJAX_ANY_RE.search(text)
+        or _REST_ROUTE_RE.search(text)
+        or _SHORTCODE_HOOK_RE.search(text)
+        or _DIRECT_BOOTSTRAP_RE.search(text)
+    )
+
+
 def _apply_pattern(
     lines: list[str],
     line_idx: int,
     pattern: VulnPattern,
     rel_path: str,
+    file_has_trigger: bool,
 ) -> Finding | None:
     """
     Apply one vulnerability pattern to one line.
@@ -528,16 +545,10 @@ def _apply_pattern(
             reason = (reason + "; " if reason else "") + (
                 "upgrade or activation routine, admin-only by WordPress contract"
             )
-        has_http_trigger = (
-            _AJAX_ANY_RE.search(ctx_all)
-            or _REST_ROUTE_RE.search(ctx_all)
-            or _SHORTCODE_HOOK_RE.search(ctx_all)
-            or _DIRECT_BOOTSTRAP_RE.search(ctx_all)
-        )
-        if not has_http_trigger:
+        if not file_has_trigger:
             confidence = max(0, confidence - HTTP_TRIGGER_PENALTY)
             reason = (reason + "; " if reason else "") + (
-                "no HTTP trigger point found in context, function may be unreachable from network"
+                "no HTTP trigger point found in file, function may be unreachable from network"
             )
         if _SHORTCODE_HOOK_RE.search(ctx_all):
             confidence = min(CONFIDENCE_CAP, confidence + SHORTCODE_BONUS)
@@ -583,9 +594,11 @@ def _scan_php_file(
     lines = text.splitlines()
     findings: list[Finding] = []
 
+    file_has_trigger = _file_has_http_trigger(lines)
+
     for i, _ in enumerate(lines):
         for pattern in PATTERNS:
-            finding = _apply_pattern(lines, i, pattern, rel_path)
+            finding = _apply_pattern(lines, i, pattern, rel_path, file_has_trigger)
             if finding is not None:
                 findings.append(finding)
 

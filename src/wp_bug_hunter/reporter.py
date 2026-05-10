@@ -70,10 +70,13 @@ def generate_report(
 
     all_pairs = list(zip(result.walkthroughs, verifications))
     verified_pairs = [(wt, v) for wt, v in all_pairs if v.ready]
+    candidate_pairs = [(wt, v) for wt, v in all_pairs if v.confidence_passed]
     verified_payout_low  = sum(wt.payout_low  for wt, _ in verified_pairs)
     verified_payout_high = sum(wt.payout_high for wt, _ in verified_pairs)
     all_payout_low  = sum(wt.payout_low  for wt, _ in all_pairs)
     all_payout_high = sum(wt.payout_high for wt, _ in all_pairs)
+    candidate_payout_low  = sum(wt.payout_low  for wt, _ in candidate_pairs)
+    candidate_payout_high = sum(wt.payout_high for wt, _ in candidate_pairs)
 
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
@@ -81,10 +84,11 @@ def generate_report(
         result, verifications, show_all=show_all,
         verified_payout_low=verified_payout_low, verified_payout_high=verified_payout_high,
         all_payout_low=all_payout_low, all_payout_high=all_payout_high,
+        candidate_payout_low=candidate_payout_low, candidate_payout_high=candidate_payout_high,
     ))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
-        if not show_all and not verification.ready:
+        if not show_all and not verification.confidence_passed:
             continue
         lines.append(SECTION_SEPARATOR)
         lines.append("")
@@ -131,10 +135,14 @@ def _format_executive_summary(
     verified_payout_high: int = 0,
     all_payout_low: int = 0,
     all_payout_high: int = 0,
+    candidate_payout_low: int = 0,
+    candidate_payout_high: int = 0,
 ) -> list[str]:
     """Render the executive summary section."""
     passed = sum(1 for v in verifications if v.ready)
     total_scanned = len(verifications)
+    candidate_count = sum(1 for v in verifications if v.confidence_passed)
+    new_count = sum(1 for v in verifications if v.confidence_passed and not v.cve_found)
     risk_level = _overall_risk_level(result.walkthroughs)
     if show_all:
         summary_paragraph = (
@@ -143,16 +151,11 @@ def _format_executive_summary(
             f"to submit. {total_scanned - passed} require manual review before submission."
         )
     else:
-        if passed == 0:
-            summary_paragraph = (
-                f"No findings passed verification for {result.plugin_slug} {result.plugin_version}. "
-                f"Use --show-all to review candidates manually."
-            )
-        else:
-            summary_paragraph = (
-                f"Scan of {result.plugin_slug} {result.plugin_version} produced {passed} "
-                f"finding(s) ready to submit."
-            )
+        summary_paragraph = (
+            f"{candidate_count} finding(s) meet confidence threshold. "
+            f"{new_count} have no known CVE and may qualify for CVE credit. "
+            f"{passed} passed full verification."
+        )
     payout_lines: list[str] = []
     if show_all:
         payout_lines.append(
@@ -161,14 +164,14 @@ def _format_executive_summary(
         payout_lines.append(
             f"- Total estimated payout (all findings): ${all_payout_low:,} - ${all_payout_high:,}"
         )
-    elif passed > 0:
+    elif candidate_count > 0:
         payout_lines.append(
-            f"- Total estimated payout: ${verified_payout_low:,} - ${verified_payout_high:,}"
+            f"- Total estimated payout: ${candidate_payout_low:,} - ${candidate_payout_high:,}"
         )
     return [
         "## Executive Summary",
         "",
-        f"- Total findings: {total_scanned if show_all else passed}",
+        f"- Total findings: {total_scanned if show_all else candidate_count}",
         f"- Overall risk level: {risk_level}",
         *payout_lines,
         "",
@@ -201,6 +204,12 @@ def _format_finding_section(
 ) -> list[str]:
     """Render a single finding's full section."""
     finding = walkthrough.finding
+    if verification is None:
+        cve_note = "Unknown"
+    elif verification.cve_found:
+        cve_note = "Yes -- check program rules"
+    else:
+        cve_note = "No -- potential CVE credit if submitted first"
     lines: list[str] = [
         f"## {finding.pattern_name} ({finding.severity})",
         "",
@@ -211,6 +220,7 @@ def _format_finding_section(
         f"| CVSS score | {_tc(walkthrough.cvss.score)} |",
         f"| CVSS vector | `{_tc(walkthrough.cvss.vector)}` |",
         f"| Est. Payout | {_tc(walkthrough.payout_estimate)} |",
+        f"| Known CVE | {_tc(cve_note)} |",
         "",
         "### Description",
         "",

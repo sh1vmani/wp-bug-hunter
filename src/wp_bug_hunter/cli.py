@@ -25,10 +25,14 @@ EXIT_ERROR = 1
 STATUS_PASS = "PASS"
 STATUS_WARN = "WARN"
 STATUS_FAIL = "FAIL"
+STATUS_NEW = "NEW"
+STATUS_CVE = "CVE"
 
 COLOR_PASS = "green"
 COLOR_WARN = "yellow"
 COLOR_FAIL = "red"
+COLOR_NEW = "bright_green"
+COLOR_CVE = "blue"
 
 CONFIRM_YES = {"y", "Y"}
 
@@ -54,11 +58,13 @@ def _print_scope_results(scope_check: ScopeCheck) -> None:
 
 def _status_for(verification: VerificationResult) -> tuple[str, str]:
     """Return (status_label, color) for a verification result."""
-    if not verification.ready:
-        return STATUS_FAIL, COLOR_FAIL
-    if verification.warnings:
-        return STATUS_WARN, COLOR_WARN
-    return STATUS_PASS, COLOR_PASS
+    if verification.ready:
+        return STATUS_PASS, COLOR_PASS
+    if verification.cve_found:
+        return STATUS_CVE, COLOR_CVE
+    if verification.confidence_passed:
+        return STATUS_NEW, COLOR_NEW
+    return STATUS_FAIL, COLOR_FAIL
 
 
 def _short_pattern(name: str) -> str:
@@ -93,12 +99,13 @@ def _render_summary_table(
     table.add_column("Severity", min_width=8, max_width=8, no_wrap=True)
     table.add_column("Confidence", min_width=10, max_width=10, no_wrap=True)
     table.add_column("Status", min_width=6, max_width=6, no_wrap=True)
+    table.add_column("CVE", min_width=4, max_width=5, no_wrap=True)
     table.add_column("Est. Payout", min_width=18, max_width=22, no_wrap=True)
 
     pairs = [
         (wt, v)
         for wt, v in zip(analysis_result.walkthroughs, verifications)
-        if show_all or v.ready
+        if show_all or v.confidence_passed
     ]
     pairs.sort(key=lambda p: p[0].payout_high, reverse=True)
     if not pairs:
@@ -106,8 +113,7 @@ def _render_summary_table(
             console.print("No findings found.")
         else:
             console.print(
-                "No findings passed verification for this plugin. "
-                "Open the report for candidates to pursue manually."
+                "No findings met the confidence threshold. Try --show-all to see everything."
             )
         return
     top_pairs = pairs[:10]
@@ -122,6 +128,7 @@ def _render_summary_table(
             finding.severity,
             f"{finding.confidence}%",
             f"[{color}]{status_label}[/{color}]",
+            f"[red]Yes[/red]" if verification.cve_found else f"[bright_green]No[/bright_green]",
             walkthrough.payout_estimate,
         )
 

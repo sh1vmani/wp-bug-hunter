@@ -889,8 +889,8 @@ def analyze(scan_result: ScanResult) -> AnalysisResult:
 
         recording_guide = RecordingGuide(
             software=RECORDING_SOFTWARE,
-            obs_setup=_OBS_SETUP_STEPS,
-            before_recording=_BEFORE_RECORDING_STEPS,
+            obs_setup=list(_OBS_SETUP_STEPS),
+            before_recording=list(_BEFORE_RECORDING_STEPS),
             recording_steps=[_fill(s, **ctx) for s in tmpl.recording_steps],
             duration=RECORDING_DURATION,
             export_format=RECORDING_FORMAT,
@@ -902,7 +902,7 @@ def analyze(scan_result: ScanResult) -> AnalysisResult:
                 finding=finding,
                 plain_english=_fill(tmpl.plain_english, **ctx),
                 attacker_impact=tmpl.attacker_impact,
-                environment_setup=env_setup,
+                environment_setup=list(env_setup),
                 plugin_install=plugin_install,
                 reproduction_steps=[_fill(s, **ctx) for s in tmpl.repro_steps],
                 confirmation_criteria=tmpl.confirmation_criteria,

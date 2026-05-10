@@ -520,13 +520,27 @@ def _rank_findings(findings: list[Finding]) -> list[Finding]:
 
 
 def _read_version_from_dir(source_dir: pathlib.Path, slug: str) -> str:
-    """Read 'Version:' header from readme.txt or <slug>.php; return 'unknown' if absent."""
+    """Read 'Version:' header from plugin files; return 'unknown' if absent.
+
+    Checks in order: readme.txt, <slug>.php, then any root-level .php file
+    that contains a 'Plugin Name:' header (standard WordPress plugin header).
+    """
     for candidate in (source_dir / "readme.txt", source_dir / f"{slug}.php"):
         try:
             for line in candidate.read_text(encoding="utf-8", errors="replace").splitlines():
                 m = re.match(r"(?i)version\s*:\s*(.+)", line.strip())
                 if m:
                     return m.group(1).strip()
+        except OSError:
+            continue
+    for candidate in source_dir.glob("*.php"):
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"(?i)plugin name\s*:", text):
+                for line in text.splitlines():
+                    m = re.match(r"(?i)version\s*:\s*(.+)", line.strip())
+                    if m:
+                        return m.group(1).strip()
         except OSError:
             continue
     return "unknown"

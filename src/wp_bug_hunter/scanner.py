@@ -3,6 +3,7 @@
 
 """WordPress plugin downloader and vulnerability pattern scanner."""
 
+import os
 import pathlib
 import re
 import shutil

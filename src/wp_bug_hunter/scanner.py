@@ -529,7 +529,7 @@ def _read_version_from_dir(source_dir: pathlib.Path, slug: str) -> str:
     for candidate in (source_dir / "readme.txt", source_dir / f"{slug}.php"):
         try:
             for line in candidate.read_text(encoding="utf-8", errors="replace").splitlines():
-                m = re.match(r"(?i)version\s*:\s*(.+)", line.strip())
+                m = re.search(r"(?i)version\s*:\s*(.+)", line.strip())
                 if m:
                     return m.group(1).strip()
         except OSError:
@@ -539,7 +539,7 @@ def _read_version_from_dir(source_dir: pathlib.Path, slug: str) -> str:
             text = candidate.read_text(encoding="utf-8", errors="replace")
             if re.search(r"(?i)plugin name\s*:", text):
                 for line in text.splitlines():
-                    m = re.match(r"(?i)version\s*:\s*(.+)", line.strip())
+                    m = re.search(r"(?i)version\s*:\s*(.+)", line.strip())
                     if m:
                         return m.group(1).strip()
         except OSError:

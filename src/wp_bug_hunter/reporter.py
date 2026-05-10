@@ -65,7 +65,7 @@ def generate_report(
 
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
-    lines.extend(_format_executive_summary(result, verifications))
+    lines.extend(_format_executive_summary(result, verifications, show_all=show_all))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
         if not verification.ready and not show_all:
@@ -110,20 +110,28 @@ def _format_header(
 def _format_executive_summary(
     result: AnalysisResult,
     verifications: list[VerificationResult],
+    show_all: bool = False,
 ) -> list[str]:
     """Render the executive summary section."""
     passed = sum(1 for v in verifications if v.ready)
-    total = passed
+    total_scanned = len(verifications)
     risk_level = _overall_risk_level(result.walkthroughs)
-    summary_paragraph = (
-        f"Scan of {result.plugin_slug} {result.plugin_version} produced {total} "
-        f"finding(s) ready to submit. Overall risk level "
-        f"is rated {risk_level} based on the highest CVSS score across all findings."
-    )
+    if show_all:
+        summary_paragraph = (
+            f"Scan of {result.plugin_slug} {result.plugin_version} produced "
+            f"{total_scanned} finding(s). {passed} passed verification and are ready "
+            f"to submit. {total_scanned - passed} require manual review before submission."
+        )
+    else:
+        summary_paragraph = (
+            f"Scan of {result.plugin_slug} {result.plugin_version} produced {passed} "
+            f"finding(s) ready to submit. Overall risk level "
+            f"is rated {risk_level} based on the highest CVSS score across all findings."
+        )
     return [
         "## Executive Summary",
         "",
-        f"- Total findings: {total}",
+        f"- Total findings: {total_scanned if show_all else passed}",
         f"- Overall risk level: {risk_level}",
         "",
         summary_paragraph,

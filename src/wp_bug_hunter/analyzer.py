@@ -3,8 +3,10 @@
 
 """Manual verification walkthrough and screen recording guide generator."""
 
+import re
 from dataclasses import dataclass
 
+from wp_bug_hunter.config import PURSUIT_CONFIDENCE
 from wp_bug_hunter.scanner import Finding, ScanResult
 
 RECORDING_SOFTWARE = "OBS Studio (free) - download at https://obsproject.com"
@@ -79,7 +81,6 @@ class AnalysisResult:
 class _PatternTemplate:
     plain_english: str
     attacker_impact: str
-    repro_steps: list[str]
     confirmation_criteria: list[str]
     false_positive_checks: list[str]
     severity_justification: str
@@ -127,6 +128,319 @@ _BEFORE_RECORDING_STEPS: list[str] = [
     "Start OBS recording BEFORE you type any test payload. Click 'Start Recording' in OBS first, then begin demonstrating.",
 ]
 
+_PAYLOAD_INFO: dict[str, dict[str, str]] = {
+    "SQL Injection": {
+        "quick_payload": "'",
+        "quick_expect": "MySQL syntax error in response (e.g. 'You have an error in your SQL syntax')",
+        "burp_payload": "1 AND SLEEP(5)-- -",
+        "burp_expect": "Response time delayed by 5 seconds vs the baseline request",
+    },
+    "Cross-Site Scripting (XSS)": {
+        "quick_payload": "<script>alert('XSS')</script>",
+        "quick_expect": "JavaScript alert popup showing 'XSS' when the page renders",
+        "burp_payload": "<img src=x onerror=alert('XSS')>",
+        "burp_expect": "Payload appears unescaped in response HTML body (search the response for 'onerror')",
+    },
+    "Cross-Site Request Forgery (CSRF)": {
+        "quick_payload": "Save the legitimate POST request, then replay it from a different origin (HTML form on a local file)",
+        "quick_expect": "Action completes when triggered from the cross-origin page (no 'security check failed' message)",
+        "burp_payload": "Right-click request > Engagement tools > Generate CSRF PoC",
+        "burp_expect": "PoC HTML, when opened in the same browser session, completes the action server-side",
+    },
+    "File Inclusion": {
+        "quick_payload": "../../../../wp-config.php",
+        "quick_expect": "Contents of wp-config.php (DB_PASSWORD, AUTH_KEY constants) appear in the response",
+        "burp_payload": "../../../../etc/passwd",
+        "burp_expect": "Linux user accounts (root:x:0:0:...) appear in the response body",
+    },
+    "Arbitrary File Upload": {
+        "quick_payload": "Upload a file named test-upload.php with content: <?php echo 'rce_'.phpversion(); ?>",
+        "quick_expect": "File accepted; navigating to the upload URL prints 'rce_' followed by the PHP version",
+        "burp_payload": "In the multipart/form-data request, change filename to evil.php and Content-Type to image/png",
+        "burp_expect": "Server returns the upload URL; that URL executes the PHP payload when fetched",
+    },
+    "Privilege Escalation": {
+        "quick_payload": "Log in as a Subscriber, then trigger the admin action via fetch() in browser console",
+        "quick_expect": "Action completes (200 OK with success body) instead of 403 / 'You do not have permission'",
+        "burp_payload": "Replay the admin request with the Subscriber's wordpress_logged_in cookie substituted in",
+        "burp_expect": "Same successful response as the admin user, proving the capability check is missing",
+    },
+    "Open Redirect": {
+        "quick_payload": "https://example.com",
+        "quick_expect": "Browser address bar leaves the WordPress site and lands on example.com",
+        "burp_payload": "//example.com  (protocol-relative form, often bypasses naive prefix checks)",
+        "burp_expect": "302 response with Location header pointing to the external domain",
+    },
+    "PHP Object Injection": {
+        "quick_payload": "O:8:\"stdClass\":0:{}",
+        "quick_expect": "Page accepts the serialized object without raising a deserialization error",
+        "burp_payload": "URL-encoded: O%3A8%3A%22stdClass%22%3A0%3A%7B%7D",
+        "burp_expect": "200 response, payload accepted -- confirms unserialize() reaches user input",
+    },
+    "Remote Code Execution": {
+        "quick_payload": ";echo 'rce_'.phpversion();  (for eval) or ;id  (for shell_exec)",
+        "quick_expect": "'rce_' followed by PHP version, OR 'uid=33(www-data)' style output appears",
+        "burp_payload": "URL-encode the payload to survive transport: %3Bid%3B for shell, %3Bphpinfo%28%29%3B for eval",
+        "burp_expect": "Command output or phpinfo() page rendered in the response body",
+    },
+    "Insecure Direct Object Reference": {
+        "quick_payload": "Change the ID parameter from your record's ID to another user's ID",
+        "quick_expect": "Other user's private data displayed in your session",
+        "burp_payload": "In Intruder, set the ID parameter as a payload position and run a numeric range (1-100)",
+        "burp_expect": "Multiple users' records returned in the response set, sorted by content length",
+    },
+}
+
+_FALLBACK_PAYLOAD: dict[str, str] = {
+    "quick_payload": "Manual analysis required to determine the right payload for this pattern",
+    "quick_expect": "Confirm by reviewing the snippet and surrounding code in the test environment",
+    "burp_payload": "Capture the request and craft a payload appropriate to the pattern",
+    "burp_expect": "Compare the response to a baseline request to identify the impact",
+}
+
+_INPUT_SUPER_RE = re.compile(
+    r"\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER)\s*\[\s*['\"]([^'\"]+)['\"]\s*\]"
+)
+_VAR_FROM_INPUT_RE = re.compile(
+    r"\$(\w+)\s*=\s*\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER)\s*\[\s*['\"]([^'\"]+)['\"]\s*\]"
+)
+_VAR_REF_RE = re.compile(r"\$(\w+)")
+
+_AJAX_HOOK_RE = re.compile(r"add_action\s*\(\s*['\"]wp_ajax(_nopriv)?_(\w+)['\"]")
+_REST_RE = re.compile(r"register_rest_route\s*\(\s*['\"]([^'\"]+)['\"]")
+_SHORTCODE_RE = re.compile(r"add_shortcode\s*\(\s*['\"](\w+)['\"]")
+_ADMIN_PAGE_RE = re.compile(
+    r"add_(menu|submenu|options|management|theme|plugins|users|dashboard|posts|media|comments)_page"
+)
+
+_NONCE_RE = re.compile(r"\b(wp_verify_nonce|check_ajax_referer|check_admin_referer)\s*\(")
+_CAP_RE = re.compile(r"\bcurrent_user_can\s*\(\s*['\"]([^'\"]+)['\"]")
+_SANITIZE_NAMES = (
+    "sanitize_text_field", "sanitize_email", "sanitize_key", "sanitize_file_name",
+    "sanitize_user", "intval", "absint", "esc_sql", "wp_kses", "wp_kses_post",
+    "esc_html", "esc_attr", "esc_url", "wp_safe_redirect", "wp_check_filetype",
+)
+_SANITIZE_RE = re.compile(r"\b(" + "|".join(_SANITIZE_NAMES) + r")\s*\(")
+
+
+def _extract_input_source(snippet: str, context_before: list[str]) -> dict:
+    """Find where user input enters the vulnerable code.
+
+    Returns dict: source ('GET'|'POST'|...|'unknown'), param (name or None),
+    var ('$name' or None when input is read directly from a super-global).
+    """
+    direct = _INPUT_SUPER_RE.search(snippet)
+    if direct:
+        return {"source": direct.group(1), "param": direct.group(2), "var": None}
+
+    var_map: dict[str, tuple[str, str]] = {}
+    for line in context_before:
+        for m in _VAR_FROM_INPUT_RE.finditer(line):
+            var_map[m.group(1)] = (m.group(2), m.group(3))
+
+    for var in _VAR_REF_RE.findall(snippet):
+        if var in var_map:
+            source, param = var_map[var]
+            return {"source": source, "param": param, "var": f"${var}"}
+
+    return {"source": "unknown", "param": None, "var": None}
+
+
+def _classify_endpoint(file_path: str, context_before: list[str], slug: str) -> dict:
+    """Determine the endpoint type from file path and surrounding hooks."""
+    ctx_text = "\n".join(context_before)
+
+    m = _AJAX_HOOK_RE.search(ctx_text)
+    if m:
+        return {
+            "type": "ajax",
+            "auth_required": m.group(1) is None,
+            "url": "/wp-admin/admin-ajax.php",
+            "detail": f"AJAX action 'action={m.group(2)}'",
+        }
+    m = _REST_RE.search(ctx_text)
+    if m:
+        return {
+            "type": "rest",
+            "auth_required": False,
+            "url": f"/wp-json/{m.group(1)}/",
+            "detail": f"REST namespace '{m.group(1)}' (check permission_callback in surrounding code)",
+        }
+    m = _SHORTCODE_RE.search(ctx_text)
+    if m:
+        return {
+            "type": "shortcode",
+            "auth_required": False,
+            "url": f"/?p=PAGE_ID  (any page containing [{m.group(1)}] shortcode)",
+            "detail": f"Shortcode [{m.group(1)}]",
+        }
+    if "wp-admin" in file_path or _ADMIN_PAGE_RE.search(ctx_text):
+        return {
+            "type": "admin",
+            "auth_required": True,
+            "url": f"/wp-admin/admin.php?page={slug}",
+            "detail": "Admin page",
+        }
+    return {
+        "type": "public",
+        "auth_required": False,
+        "url": f"/wp-content/plugins/{slug}/{file_path.split('/')[-1]}  (if directly accessible)",
+        "detail": "Public-facing PHP file",
+    }
+
+
+def _detect_security_controls(
+    context_before: list[str], context_after: list[str]
+) -> dict:
+    """Search the surrounding code for nonce, capability, and sanitization calls."""
+    ctx = "\n".join(context_before + context_after)
+    nonce = _NONCE_RE.search(ctx)
+    cap = _CAP_RE.search(ctx)
+    sanitizers = sorted(set(_SANITIZE_RE.findall(ctx)))
+    return {
+        "nonce_check": nonce.group(1) if nonce else None,
+        "capability_check": cap.group(1) if cap else None,
+        "sanitizers": sanitizers,
+    }
+
+
+def _phase1_browser(
+    finding: Finding, src: dict, endpoint: dict, payload: dict, controls: dict
+) -> list[str]:
+    """Build Phase 1 (browser) steps."""
+    auth = " (must be logged in)" if endpoint["auth_required"] else " (no login required)"
+    steps: list[str] = [
+        "PHASE 1 -- Browser quick test:",
+        f"Endpoint type: {endpoint['detail']}. Open the URL: {endpoint['url']}{auth}",
+    ]
+    if src["source"] != "unknown":
+        if src["var"]:
+            steps.append(
+                f"User input enters via $_{src['source']}['{src['param']}'] which is "
+                f"assigned to {src['var']} and used at line {finding.line_number}. "
+                f"Locate the form field or URL parameter named '{src['param']}'."
+            )
+        else:
+            steps.append(
+                f"User input enters directly via $_{src['source']}['{src['param']}']. "
+                f"Locate the form field or URL parameter named '{src['param']}'."
+            )
+    else:
+        steps.append(
+            f"Inspect the snippet to identify the user input that reaches "
+            f"line {finding.line_number}: {finding.snippet}"
+        )
+    steps.append(f"Supply this payload in '{src['param'] or 'the input'}': {payload['quick_payload']}")
+    steps.append(f"Confirm exploitation: {payload['quick_expect']}")
+    if controls["nonce_check"]:
+        steps.append(
+            f"Note: surrounding code calls {controls['nonce_check']}() -- capture a "
+            "valid nonce from a normal request before sending the payload."
+        )
+    if controls["capability_check"]:
+        steps.append(
+            f"Note: surrounding code calls current_user_can('{controls['capability_check']}'). "
+            "Test as a user lacking this capability to confirm the gate is reachable."
+        )
+    if controls["sanitizers"]:
+        steps.append(
+            f"Note: surrounding code uses sanitizers ({', '.join(controls['sanitizers'])}). "
+            "Try alternative payload encodings if the default is filtered."
+        )
+    return steps
+
+
+def _phase2_burp(
+    finding: Finding, src: dict, endpoint: dict, payload: dict, controls: dict
+) -> list[str]:
+    """Build Phase 2 (Burp Suite) steps."""
+    steps: list[str] = [
+        "PHASE 2 -- Burp Suite PoC:",
+        "Open Burp Suite Community Edition (preinstalled on Kali). Go to Proxy > "
+        "Intercept and click 'Open browser' to launch the embedded browser, OR "
+        "configure Firefox to proxy through 127.0.0.1:8080 manually.",
+        "Trust the Burp CA: in the Burp browser, navigate to http://burp, download "
+        "the CA certificate, and import it under Firefox Settings > Privacy & "
+        "Security > Certificates > View Certificates > Authorities > Import.",
+    ]
+    if endpoint["auth_required"]:
+        steps.append(
+            "Through the Burp browser, log in to WordPress with the appropriate role "
+            "so the session cookie is captured."
+        )
+    steps.append(
+        f"In the Burp browser, navigate to {endpoint['url']} and trigger one normal "
+        "request to the vulnerable endpoint."
+    )
+    steps.append(
+        "In Burp's Proxy > HTTP history, locate the request and right-click > Send to Repeater."
+    )
+    if src["param"] and src["source"] != "unknown":
+        location = "POST body" if src["source"] in ("POST", "FILES") else (
+            "Cookie header" if src["source"] == "COOKIE" else "URL query string"
+        )
+        steps.append(
+            f"In Repeater, locate the parameter '{src['param']}' in the {location} "
+            f"and replace its value with the payload: {payload['burp_payload']}"
+        )
+    else:
+        steps.append(f"In Repeater, modify the request to inject: {payload['burp_payload']}")
+    steps.append("Click Send.")
+    steps.append(f"Confirm in the response panel: {payload['burp_expect']}")
+    steps.append(
+        "Save the Repeater tab as evidence: right-click the tab > Save > Selected "
+        "items > save as burp-poc.json next to your video."
+    )
+    return steps
+
+
+def _phase3_evidence(finding: Finding, endpoint: dict, controls: dict) -> list[str]:
+    """Build Phase 3 (evidence checklist) steps."""
+    steps: list[str] = [
+        "PHASE 3 -- Evidence checklist:",
+        "Screenshot 1 (browser): vulnerability triggered. URL bar visible. If "
+        "logged in, the user identity must be visible in the WordPress admin bar.",
+        "Screenshot 2 (Burp request): Repeater request panel showing the HTTP "
+        "request with the payload highlighted in the parameter.",
+        "Screenshot 3 (Burp response): Repeater response panel showing the proof "
+        "of exploitation (error, injected content, file contents, etc.).",
+        "Screen recording: 2-5 minute MP4 capturing the full reproduction from "
+        "login through observing the exploit. See the Recording Guide appendix.",
+    ]
+    if endpoint["auth_required"]:
+        role_hint = "admin" if endpoint["type"] == "admin" else "logged-in user (test as Subscriber for least-privilege impact)"
+        steps.append(f"Authentication: this finding requires a {role_hint} session.")
+    else:
+        steps.append("Authentication: not required; exploitable as an anonymous visitor.")
+    if controls["nonce_check"] or controls["capability_check"] or controls["sanitizers"]:
+        present: list[str] = []
+        if controls["nonce_check"]:
+            present.append(f"{controls['nonce_check']}()")
+        if controls["capability_check"]:
+            present.append(f"current_user_can('{controls['capability_check']}')")
+        if controls["sanitizers"]:
+            present.append(f"sanitizers({', '.join(controls['sanitizers'])})")
+        steps.append(
+            "Security controls observed in surrounding code: "
+            + "; ".join(present)
+            + ". Document in your write-up why these did not prevent exploitation."
+        )
+    return steps
+
+
+def _build_repro_steps(finding: Finding, slug: str, version: str) -> list[str]:
+    """Generate three-phase reproduction steps from actual finding data."""
+    src = _extract_input_source(finding.snippet, finding.context_before)
+    endpoint = _classify_endpoint(finding.file_path, finding.context_before, slug)
+    payload = _PAYLOAD_INFO.get(finding.pattern_name, _FALLBACK_PAYLOAD)
+    controls = _detect_security_controls(finding.context_before, finding.context_after)
+    steps: list[str] = []
+    steps.extend(_phase1_browser(finding, src, endpoint, payload, controls))
+    steps.extend(_phase2_burp(finding, src, endpoint, payload, controls))
+    steps.extend(_phase3_evidence(finding, endpoint, controls))
+    return steps
+
+
 _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
     "SQL Injection": _PatternTemplate(
         plain_english=(
@@ -144,18 +458,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "Depending on MySQL configuration, they may also be able to write files to the "
             "server, which can lead to complete server takeover."
         ),
-        repro_steps=[
-            "In your browser, navigate to the page or admin screen where the plugin accepts input. Look at the plugin's settings page at http://localhost:8080/wp-admin/admin.php?page={slug} or look for a URL parameter like ?id=1 on any page that uses the plugin.",
-            "Open your browser developer tools by pressing F12. Click the Network tab. This lets you see every request the browser sends.",
-            "Locate the input field or URL parameter that feeds into the database query. This is usually an ID, search term, or filter value.",
-            "Change the input to a single quote: ' (just the apostrophe character, nothing else) and press Enter or submit the form.",
-            "Look at the response. If you see a MySQL error message anywhere on the page such as 'You have an error in your SQL syntax' or 'Warning: mysqli_query()', SQL injection is present. Take a screenshot immediately.",
-            "If the page looks broken or shows different content than normal, that also indicates injection is affecting the query.",
-            "Test with a time-based payload to confirm the injection executes: change the input to: 1 AND SLEEP(5)-- -   (copy this exactly, including the trailing space and dashes). Submit and measure how long the page takes to respond. If it takes exactly 5 seconds longer than a normal request, blind SQL injection is confirmed.",
-            "Test data extraction: change the input to: 1 UNION SELECT 1,user(),database()-- -   If you see the MySQL username or database name displayed anywhere on the page, data extraction is confirmed.",
-            "Take a screenshot of each step that shows the vulnerability: the error message, the delayed response, and any extracted data.",
-            "Note the exact URL, the exact parameter name, and whether you needed to be logged in to trigger this.",
-        ],
         confirmation_criteria=[
             "A MySQL error message appears on the page mentioning SQL syntax or mysqli.",
             "The page responds 5 seconds late with the SLEEP(5) payload.",
@@ -213,18 +515,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "create new admin accounts, or deface the site. Stored XSS is especially severe "
             "because it affects every visitor automatically."
         ),
-        repro_steps=[
-            "Find the page in your browser that displays output from the vulnerable code in {file} line {line}. Look for a page that shows user-submitted content such as comments, form submissions, search results, or admin-entered text.",
-            "Find the input that feeds into the echo or print statement on that line. This is usually a URL parameter (?q=searchterm), a form field, or a comment box.",
-            "In that input, type this exact string (copy it exactly): <script>alert('XSS')</script>",
-            "Submit the form or press Enter to navigate to the URL with that value in the parameter.",
-            "Look at what happens in the browser. If a popup box appears with the text 'XSS', the vulnerability is confirmed. Take a screenshot of the popup.",
-            "If no popup appeared, try this alternative payload which bypasses some basic filters: <img src=x onerror=alert('XSS')>",
-            "If neither payload works, try: <svg onload=alert('XSS')>",
-            "To determine if the XSS is stored or reflected: submit the payload, then open a new incognito browser window and visit the same page WITHOUT submitting anything. If the popup fires in the incognito window without any input, it is stored XSS, which is more severe. If the popup only fires when you submit the payload in the URL, it is reflected XSS.",
-            "Note whether you had to be logged in to submit the payload, and whether the popup fires for logged-out users. XSS that requires no login and fires for all visitors is the most severe.",
-            "Take a screenshot of: the input being submitted, the alert popup, the URL showing the payload, and (for stored XSS) the incognito window also showing the popup.",
-        ],
         confirmation_criteria=[
             "An alert popup appears showing the text 'XSS' when the payload is submitted.",
             "The browser executes JavaScript from user-supplied input.",
@@ -282,18 +572,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "knowledge. This can include deleting content, changing settings, creating "
             "accounts, or any other state-changing operation the plugin supports."
         ),
-        repro_steps=[
-            "In your browser, log in to WordPress as admin at http://localhost:8080/wp-admin.",
-            "Find the form or action in the plugin that processes the POST data found at {file} line {line}. Look for a settings form, a delete button, or any action button in the plugin's interface.",
-            "Open browser developer tools by pressing F12 and click the Network tab.",
-            "Perform the action normally (submit the form or click the button). In the Network tab, click the POST request that appears and look at the Payload or Form Data section to see exactly what fields are sent and to what URL.",
-            "Note the URL the form posts to, the field names, and their values. Write these down.",
-            "Create a new text file on your Desktop called csrf-test.html. Open a text editor (Notepad on Windows, TextEdit on Mac), paste the following content, and fill in the URL and field names from the step above: <html><body><form method=\"POST\" action=\"REPLACE_WITH_ACTION_URL\"><input type=\"hidden\" name=\"REPLACE_FIELD_NAME\" value=\"REPLACE_FIELD_VALUE\"><input type=\"submit\" value=\"Click me to test CSRF\"></form></body></html>",
-            "Save the file. While still logged in to WordPress in the same browser, open the csrf-test.html file: in your browser go to File > Open File and select csrf-test.html from your Desktop.",
-            "Click the 'Click me to test CSRF' button on that page.",
-            "Go back to the WordPress admin and check if the action was performed. If the action succeeded even though you submitted it from a file on your Desktop rather than from the WordPress admin, CSRF is confirmed.",
-            "Take a screenshot of the csrf-test.html page, the submission, and the WordPress admin showing the result of the action.",
-        ],
         confirmation_criteria=[
             "The WordPress action completes successfully when triggered from the external HTML file.",
             "No nonce field appears in the form data captured in browser dev tools.",
@@ -349,17 +627,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "and execute PHP code from a server they control, resulting in complete server "
             "compromise."
         ),
-        repro_steps=[
-            "Identify the variable controlling the filename in: {snippet}. Trace back where that variable is set by searching the plugin files for where it is assigned. Look for $_GET, $_POST, or $_REQUEST being read into that variable.",
-            "Find the URL or form input that sets this variable. Look in the plugin's PHP files for the parameter name used to read from $_GET or $_POST.",
-            "In your browser, construct a URL with that parameter set to: ../../../../wp-config.php (use four or more ../ sequences to navigate up from the plugin directory to the WordPress root).",
-            "For example, if the parameter name is 'file', navigate to: http://localhost:8080/?file=../../../../wp-config.php",
-            "Look at the page response. If you see the contents of wp-config.php printed on screen (look for DB_PASSWORD, DB_USER, or the text 'The base configurations of WordPress'), local file inclusion is confirmed. Screenshot this immediately.",
-            "If the first path does not work, try more ../ sequences: ../../../../../wp-config.php",
-            "Also try: ../../../../etc/passwd to check if system files outside the web root are readable.",
-            "Do not test remote file inclusion (loading from http:// or ftp:// URLs) without explicit written permission, as this constitutes active exploitation.",
-            "Document the exact URL, parameter name, payload used, and what file contents appeared.",
-        ],
         confirmation_criteria=[
             "Contents of wp-config.php appear in the page response, showing DB_PASSWORD or secret keys.",
             "Contents of /etc/passwd appear showing system user accounts.",
@@ -413,17 +680,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "to read any file on the server, write new files, delete files, connect to "
             "other systems, and in most cases achieve complete server compromise."
         ),
-        repro_steps=[
-            "Find the file upload interface in the plugin. Look for an Upload button or a file input field on the plugin's settings page at http://localhost:8080/wp-admin/admin.php?page={slug} or on the frontend.",
-            "Create a harmless PHP test file on your Desktop. Open a text editor and create a file named test-upload.php with exactly this content (nothing else): <?php echo 'upload_confirmed_' . phpversion(); ?>",
-            "Try to upload test-upload.php using the plugin's upload interface. Select the file from your Desktop and click Upload or Submit.",
-            "Note what happens. If the upload is rejected with a message like 'Invalid file type', the validation may be working. If the upload succeeds and no error appears, continue to the next step.",
-            "Find where the uploaded file was saved. Go to http://localhost:8080/wp-admin/upload.php or look inside the uploads folder: http://localhost:8080/wp-content/uploads/. You may need to look inside subdirectories organized by year and month.",
-            "Once you find the uploaded file, navigate directly to it in your browser. If the file is named test-upload.php and is in the uploads folder, go to: http://localhost:8080/wp-content/uploads/test-upload.php",
-            "If the browser shows text like 'upload_confirmed_8.2.0' (with a PHP version number), the PHP file executed on the server and arbitrary file upload leading to remote code execution is confirmed. Screenshot this output.",
-            "If the browser shows the raw PHP code instead of executing it, the server is configured to not execute PHP in uploads. Document this but note the file upload itself without type checking is still a vulnerability.",
-            "Document the exact upload URL, the field name used, and the URL of the uploaded file.",
-        ],
         confirmation_criteria=[
             "A PHP file with .php extension was accepted by the upload form.",
             "The uploaded PHP file is accessible via a URL in the browser.",
@@ -480,16 +736,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "administrative actions. This can include deleting other users, modifying "
             "site settings, promoting themselves to Administrator, or accessing private data."
         ),
-        repro_steps=[
-            "Create a test Subscriber account. In WordPress admin go to http://localhost:8080/wp-admin/user-new.php. Fill in a username like testsubscriber, an email, a password, and set the Role dropdown to Subscriber. Click 'Add New User'.",
-            "Open a new browser window in incognito or private mode. This keeps your admin session separate. Log in to WordPress as the Subscriber account.",
-            "Now determine what URL or action triggers the vulnerable function found at {file} line {line}. Look at the surrounding code for add_action hooks that register a function containing this line. The hook name tells you where to send requests.",
-            "Common patterns: if the hook is 'wp_ajax_ACTIONNAME', the URL is http://localhost:8080/wp-admin/admin-ajax.php with POST data: action=ACTIONNAME. If it is 'admin_post_ACTIONNAME', the URL is http://localhost:8080/wp-admin/admin-post.php with POST data: action=ACTIONNAME.",
-            "While logged in as the Subscriber in the incognito window, try to trigger the action. You can use the browser's address bar for GET requests, or open browser dev tools (F12), go to the Console tab, and type: fetch('/wp-admin/admin-ajax.php', {method:'POST', body: new URLSearchParams({action: 'ACTIONNAME'})}).then(r=>r.text()).then(console.log)",
-            "If the action succeeds and the sensitive operation actually happens, privilege escalation is confirmed.",
-            "Verify by checking the WordPress admin (in your admin window) for the effect. For example, if the action was deleting a user, check if the user is gone.",
-            "Screenshot the Subscriber triggering the action and the WordPress admin showing the result.",
-        ],
         confirmation_criteria=[
             "A Subscriber-level user can trigger the sensitive function successfully.",
             "The database or settings change actually occurs when triggered by the low-privilege account.",
@@ -545,16 +791,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "more likely to trust it. This is commonly used in phishing campaigns and "
             "to steal OAuth tokens or session cookies."
         ),
-        repro_steps=[
-            "Find the URL parameter that controls where wp_redirect() sends the user. Look at the code in {file} at line {line}: {snippet}. Identify the variable being passed to wp_redirect() and trace back where it is set.",
-            "Find the GET or POST parameter name that feeds into that variable. Look for $_GET['redirect_to'] or similar patterns in the surrounding code.",
-            "Construct a URL that sets the redirect parameter to an external site. For example: http://localhost:8080/?PARAMETERNAME=https://example.com",
-            "Navigate to that URL in your browser. Watch the address bar carefully.",
-            "If your browser ends up at https://example.com (or any domain other than localhost:8080), the open redirect is confirmed. Screenshot the browser at example.com with the WordPress URL still visible in the browser history.",
-            "Also try encoding the URL to bypass basic filters: replace https:// with https%3A%2F%2F and try again.",
-            "Try a protocol-relative URL: //example.com to see if that also redirects.",
-            "Note whether you needed to be logged in to trigger the redirect.",
-        ],
         confirmation_criteria=[
             "The browser navigates to an external domain after visiting a WordPress URL.",
             "The redirect destination is controlled entirely by a URL parameter the user supplies.",
@@ -611,16 +847,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "without an obvious gadget chain in the plugin itself, WordPress core "
             "and popular libraries often contain usable gadgets."
         ),
-        repro_steps=[
-            "Identify the input that feeds into unserialize() at {file} line {line}. Look at the surrounding code to find what variable is passed in and trace it back to a GET, POST, or COOKIE parameter.",
-            "Confirm the input is user-controllable by testing with a known-good serialized value. A simple serialized string is: s:4:\"test\"; (this is the string 'test' serialized). Supply this as the parameter value.",
-            "If the page accepts the value without error, unserialize with user input is confirmed as accessible.",
-            "Test with a serialized object: O:8:\"stdClass\":0:{} -- this creates an empty stdClass object, which is harmless. URL-encode it as: O%3A8%3A%22stdClass%22%3A0%3A%7B%7D and supply it as the parameter.",
-            "If the page accepts this without error, the function is unserializing arbitrary user data.",
-            "Search the entire plugin codebase and WordPress core classes for __wakeup, __destruct, __toString, and __call magic methods. Look for any that write files, execute commands, or make database calls with object property values. These are potential gadgets.",
-            "Document the parameter name and location where user input reaches unserialize(). Demonstrating that arbitrary serialized data is accepted is sufficient for the initial report.",
-            "Screenshot the request containing the serialized payload and the server response confirming no error.",
-        ],
         confirmation_criteria=[
             "A serialized string supplied by the user is accepted by the application without error.",
             "The application behaves differently based on the structure of the serialized input.",
@@ -677,17 +903,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "the vulnerability is patched, and in most cases escalate to root privileges "
             "using local privilege escalation techniques."
         ),
-        repro_steps=[
-            "Identify what input feeds into the function at {file} line {line}: {snippet}. Trace back the variable to a GET, POST, COOKIE, or other user-controlled source.",
-            "Find the URL, form, or endpoint that sets this variable.",
-            "Test with a completely harmless payload first. If the function is eval(), try injecting: ;echo('rce_confirmed_'.phpversion()); (note the semicolon at the start to terminate any existing statement).",
-            "If the function is shell_exec(), exec(), system(), or passthru(), try: ;echo rce_confirmed  (with a semicolon to terminate any previous command).",
-            "Submit your payload through the identified input. Look for 'rce_confirmed' followed by a PHP or OS version string in the response.",
-            "If 'rce_confirmed' appears in the page output, remote code execution is confirmed. Screenshot this immediately.",
-            "Also try: phpinfo(); for eval() or: id  for shell commands. The phpinfo() output or the Linux user identity (www-data, apache, etc.) confirms execution context.",
-            "Do not run any command that modifies, deletes, or exfiltrates actual data. The echo or phpinfo payload is the maximum needed for proof of concept.",
-            "Note the exact parameter name, the URL, and the exact payload that produced the output.",
-        ],
         confirmation_criteria=[
             "'rce_confirmed' or PHP version output appears in the page response from the eval payload.",
             "System user identity or command output appears from a shell_exec payload.",
@@ -743,16 +958,6 @@ _PATTERN_TEMPLATES: dict[str, _PatternTemplate] = {
             "personal information, private messages, or any other user-specific data "
             "stored in the WordPress database."
         ),
-        repro_steps=[
-            "Create two test user accounts. Create User A as a Subscriber (the attacker) at http://localhost:8080/wp-admin/user-new.php. Create User B as another Subscriber (the victim) at the same URL.",
-            "Log in as User B in your main browser window. Create a piece of private data using the plugin: this could be a private post, a form submission, an order, or any user-specific record the plugin stores. Note its ID (usually visible in the URL when editing it, e.g., ?post=42).",
-            "Log out and log in as User A (the attacker) in the same browser, or use an incognito window.",
-            "As User A, try to access User B's record by substituting User B's ID into the URL parameter that feeds into the query at {file} line {line}.",
-            "For example, if the URL is http://localhost:8080/?record_id=YOUR_ID, change it to http://localhost:8080/?record_id=USER_B_ID.",
-            "If the page displays User B's private data to User A, IDOR is confirmed. Screenshot the response showing the unauthorized data access, with the URL clearly visible showing User A's session.",
-            "Also test with ID 1, which is typically the WordPress admin user. If user profile data or admin-created content is returned to a Subscriber, that confirms the issue.",
-            "Document the exact parameter name, the IDs tested, and what data was exposed.",
-        ],
         confirmation_criteria=[
             "User A can view data created by or belonging to User B by changing the ID in the URL.",
             "Private records are returned to users who did not create them.",
@@ -799,11 +1004,6 @@ _FALLBACK_TEMPLATE = _PatternTemplate(
         "The vulnerable code is: {snippet}"
     ),
     attacker_impact="Impact depends on the specific vulnerability. Review the finding manually.",
-    repro_steps=[
-        "Review the vulnerable code at {file} line {line}: {snippet}",
-        "Identify what user input reaches this code and set up a test environment to reproduce it.",
-        "Attempt to supply malicious input and observe the response.",
-    ],
     confirmation_criteria=[
         "The vulnerability produces an unintended result when malicious input is supplied.",
     ],
@@ -902,7 +1102,8 @@ def analyze(
     )
     walkthroughs: list[VerificationWalkthrough] = []
 
-    for finding in scan_result.findings:
+    findings = [f for f in scan_result.findings if f.confidence >= PURSUIT_CONFIDENCE]
+    for finding in findings:
         tmpl = _PATTERN_TEMPLATES.get(finding.pattern_name, _FALLBACK_TEMPLATE)
 
         ctx = {
@@ -944,7 +1145,9 @@ def analyze(
                 attacker_impact=tmpl.attacker_impact,
                 environment_setup=list(env_setup),
                 plugin_install=plugin_install,
-                reproduction_steps=[_fill(s, **ctx) for s in tmpl.repro_steps],
+                reproduction_steps=_build_repro_steps(
+                    finding, scan_result.plugin_slug, scan_result.plugin_version
+                ),
                 confirmation_criteria=tmpl.confirmation_criteria,
                 false_positive_checks=tmpl.false_positive_checks,
                 severity_justification=tmpl.severity_justification,

@@ -101,12 +101,16 @@ def _render_summary_table(
         if show_all or (v.confidence_passed and not v.cve_found)
     ]
     pairs.sort(key=lambda p: p[0].payout_high, reverse=True)
+    top_pairs = pairs[:10]
+    remaining = len(pairs) - len(top_pairs)
     if not show_all:
         console.print(
             "Showing findings with confidence >= 70% and no known CVE. "
             "Use --show-all to see all findings."
         )
-    for walkthrough, verification in pairs:
+    if remaining > 0:
+        console.print(f"Showing top 10 of {len(pairs)} findings by estimated payout. Full list in report.")
+    for walkthrough, verification in top_pairs:
         finding = walkthrough.finding
         status_label, color = _status_for(verification)
         table.add_row(

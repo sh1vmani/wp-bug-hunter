@@ -32,6 +32,12 @@ CONTEXT_WINDOW = 20
 # Post-context capability check confidence penalty
 POST_CONTEXT_CAP_PENALTY = 20
 _POST_CONTEXT_CAP_RE = re.compile(r"\bcurrent_user_can\s*\(")
+# Confidence penalty when no user input source is found in snippet or context_before
+NO_INPUT_SOURCE_PENALTY = 25
+_USER_INPUT_SOURCE_RE = re.compile(
+    r"\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER)\b"
+    r"|\bget_(option|post_meta|user_meta)\s*\("
+)
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -468,6 +474,12 @@ def _apply_pattern(
         confidence = max(0, confidence - POST_CONTEXT_CAP_PENALTY)
         reason = (reason + "; " if reason else "") + (
             "capability check found in post-context, may be protected"
+        )
+
+    if not _USER_INPUT_SOURCE_RE.search(line + "\n" + "\n".join(context_before)):
+        confidence = max(0, confidence - NO_INPUT_SOURCE_PENALTY)
+        reason = (reason + "; " if reason else "") + (
+            "no user input source detected in snippet or context, possible false positive"
         )
 
     if confidence < MEDIUM_CONFIDENCE:

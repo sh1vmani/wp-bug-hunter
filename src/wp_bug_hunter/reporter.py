@@ -67,6 +67,8 @@ def generate_report(
     lines.extend(_format_executive_summary(result, verifications))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
+        if not verification.ready:
+            continue
         lines.append(SECTION_SEPARATOR)
         lines.append("")
         lines.extend(_format_finding_section(walkthrough, verification))
@@ -103,19 +105,18 @@ def _format_executive_summary(
     verifications: list[VerificationResult],
 ) -> list[str]:
     """Render the executive summary section."""
-    total = len(result.walkthroughs)
     passed = sum(1 for v in verifications if v.ready)
+    total = passed
     risk_level = _overall_risk_level(result.walkthroughs)
     summary_paragraph = (
         f"Scan of {result.plugin_slug} {result.plugin_version} produced {total} "
-        f"finding(s), of which {passed} passed verification. Overall risk level "
+        f"finding(s) ready to submit. Overall risk level "
         f"is rated {risk_level} based on the highest CVSS score across all findings."
     )
     return [
         "## Executive Summary",
         "",
         f"- Total findings: {total}",
-        f"- Passed verification: {passed}",
         f"- Overall risk level: {risk_level}",
         "",
         summary_paragraph,

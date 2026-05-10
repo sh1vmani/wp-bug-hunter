@@ -15,18 +15,23 @@
 - COMPLETE: LEGAL.md - 2026-05-09
 - COMPLETE: CHANGELOG.md - 2026-05-09
 
+## Code Review Fixes (2026-05-09)
+
+All 23 fixes from full opus code review applied and pushed:
+
+- 3 blocking: _fill format injection, pipe escape in snippet, zip-based pairing
+- 6 degraded: Intigriti list guard, confidence levels, symlink extraction, os.listdir dedup, WPScan slug fallback, evidence dir surfaced early
+- 14 minor: error surfacing, size check ordering, 5xx guards, bugcrowd session param, empty query guard, session context manager, recording guide dedup, _tc() pipe escape, video warning deferral, single listdir call, --debug flag, yes/YES prompt, list() copies for shared steps
+
+Full import test passing: analyzer, reporter, cli all OK.
+
 ## Current Status
 
-wp-bug-hunter 0.1.0 complete.
+wp-bug-hunter 0.1.0 complete and hardened.
 
 ## Remaining Files (in order)
 
 None.
-2. reporter.py - markdown report file generator
-3. cli.py - typer CLI entry point wiring all modules together
-4. README.md
-5. LEGAL.md
-6. CHANGELOG.md
 
 ## Project Rules (never break these)
 

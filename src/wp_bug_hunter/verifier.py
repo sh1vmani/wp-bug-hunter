@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 import requests
@@ -68,10 +69,12 @@ def _nvd_cve_check(
     """Return (clear, message) after querying the NIST NVD for known CVEs.
 
     clear=True means no matching CVEs were found or the check was inconclusive.
-    Uses the NVD keywordSearch endpoint, then filters results to those whose
-    description contains the plugin slug literally, to avoid false matches on
-    common English words shared with plugin slugs (e.g. "give"). Per-slug
-    results are cached in _nvd_cache for the life of the process.
+    Uses the NVD keywordSearch endpoint, then filters results so the slug
+    appears as a standalone word in a plugin-name context ('slug plugin',
+    'slug wordpress', or 'for slug') and the description mentions WordPress.
+    This rejects coincidental matches like 'gutenberg' against unrelated
+    'Gutenberg Template Library' CVEs. Per-slug results are cached in
+    _nvd_cache for the life of the process.
     """
     if plugin_slug in _nvd_cache:
         return _nvd_cache[plugin_slug]
@@ -90,14 +93,17 @@ def _nvd_cve_check(
     except requests.RequestException as exc:
         return True, f"NVD CVE lookup failed ({exc}); CVE check skipped."
 
-    slug_lower = plugin_slug.lower()
+    plugin_name_re = re.compile(
+        rf"(\b{re.escape(plugin_slug)}\b\s+(plugin|wordpress)|for\s+\b{re.escape(plugin_slug)}\b)",
+        re.IGNORECASE,
+    )
     matches: list[tuple[str, str]] = []
     for entry in data.get("vulnerabilities", []):
         cve = entry.get("cve", {})
         cve_id = cve.get("id", "unknown")
         descriptions = cve.get("descriptions", [])
         desc_text = descriptions[0].get("value", "") if descriptions else ""
-        if slug_lower in desc_text.lower():
+        if "wordpress" in desc_text.lower() and plugin_name_re.search(desc_text):
             matches.append((cve_id, desc_text))
 
     if not matches:

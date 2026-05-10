@@ -135,8 +135,8 @@ def check_patchstack_scope(plugin_slug: str, session: requests.Session) -> Scope
             in_scope=True,
             program_name="Patchstack Alliance",
             program_url=PATCHSTACK_ALLIANCE_URL,
-            confidence=CONFIDENCE_CONFIRMED,
-            notes=f"Plugin tracked in Patchstack database at {url}",
+            confidence=CONFIDENCE_LIKELY,
+            notes=f"Plugin page returned HTTP 200 in Patchstack database at {url}",
         )
 
     return ScopeResult(
@@ -175,8 +175,8 @@ def check_wordfence_scope(plugin_slug: str, session: requests.Session) -> ScopeR
             in_scope=True,
             program_name="Wordfence Intelligence",
             program_url=PLATFORMS["wordfence"],
-            confidence=CONFIDENCE_CONFIRMED,
-            notes=f"Plugin tracked by Wordfence Intelligence at {url}",
+            confidence=CONFIDENCE_LIKELY,
+            notes=f"Plugin page returned HTTP 200 in Wordfence Intelligence at {url}",
         )
 
     return ScopeResult(
@@ -290,6 +290,18 @@ def check_intigriti_scope(query: str, session: requests.Session) -> ScopeResult:
     try:
         programs = resp.json()
     except ValueError:
+        return ScopeResult(
+            platform="intigriti",
+            in_scope=False,
+            program_name=None,
+            program_url=search_url,
+            confidence=CONFIDENCE_UNKNOWN,
+            notes=f"Intigriti API returned unexpected format. Verify manually at {search_url}",
+        )
+
+    if not isinstance(programs, list):
+        programs = programs.get("data", []) if isinstance(programs, dict) else []
+    if not isinstance(programs, list):
         return ScopeResult(
             platform="intigriti",
             in_scope=False,

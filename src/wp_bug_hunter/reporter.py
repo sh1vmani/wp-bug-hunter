@@ -70,10 +70,13 @@ def generate_report(
 
     all_pairs = list(zip(result.walkthroughs, verifications))
     verified_pairs = [(wt, v) for wt, v in all_pairs if v.ready]
+    candidate_pairs = [(wt, v) for wt, v in all_pairs if v.confidence_passed and not v.cve_found]
     verified_payout_low  = sum(wt.payout_low  for wt, _ in verified_pairs)
     verified_payout_high = sum(wt.payout_high for wt, _ in verified_pairs)
     all_payout_low  = sum(wt.payout_low  for wt, _ in all_pairs)
     all_payout_high = sum(wt.payout_high for wt, _ in all_pairs)
+    candidate_payout_low  = sum(wt.payout_low  for wt, _ in candidate_pairs)
+    candidate_payout_high = sum(wt.payout_high for wt, _ in candidate_pairs)
 
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
@@ -81,10 +84,11 @@ def generate_report(
         result, verifications, show_all=show_all,
         verified_payout_low=verified_payout_low, verified_payout_high=verified_payout_high,
         all_payout_low=all_payout_low, all_payout_high=all_payout_high,
+        candidate_payout_low=candidate_payout_low, candidate_payout_high=candidate_payout_high,
     ))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
-        if not verification.ready and not show_all:
+        if not show_all and not (verification.confidence_passed and not verification.cve_found):
             continue
         lines.append(SECTION_SEPARATOR)
         lines.append("")
@@ -131,10 +135,13 @@ def _format_executive_summary(
     verified_payout_high: int = 0,
     all_payout_low: int = 0,
     all_payout_high: int = 0,
+    candidate_payout_low: int = 0,
+    candidate_payout_high: int = 0,
 ) -> list[str]:
     """Render the executive summary section."""
     passed = sum(1 for v in verifications if v.ready)
     total_scanned = len(verifications)
+    candidate_count = sum(1 for v in verifications if v.confidence_passed and not v.cve_found)
     risk_level = _overall_risk_level(result.walkthroughs)
     if show_all:
         summary_paragraph = (
@@ -144,9 +151,8 @@ def _format_executive_summary(
         )
     else:
         summary_paragraph = (
-            f"Scan of {result.plugin_slug} {result.plugin_version} produced {passed} "
-            f"finding(s) ready to submit. Overall risk level "
-            f"is rated {risk_level} based on the highest CVSS score across all findings."
+            f"Scan of {result.plugin_slug} {result.plugin_version}: "
+            f"{candidate_count} finding(s) meet confidence threshold with no known CVE."
         )
     payout_lines: list[str] = []
     if show_all:
@@ -158,12 +164,12 @@ def _format_executive_summary(
         )
     else:
         payout_lines.append(
-            f"- Total estimated payout: ${verified_payout_low:,} - ${verified_payout_high:,}"
+            f"- Total estimated payout: ${candidate_payout_low:,} - ${candidate_payout_high:,}"
         )
     return [
         "## Executive Summary",
         "",
-        f"- Total findings: {total_scanned if show_all else passed}",
+        f"- Total findings: {total_scanned if show_all else candidate_count}",
         f"- Overall risk level: {risk_level}",
         *payout_lines,
         "",

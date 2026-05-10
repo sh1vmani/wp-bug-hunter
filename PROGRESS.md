@@ -25,9 +25,24 @@ All 23 fixes from full opus code review applied and pushed:
 
 Full import test passing: analyzer, reporter, cli all OK.
 
+## Post-Review Fixes and Features (2026-05-09)
+
+- FIX A: version regex fix (re.match to re.search) in scanner.py
+- FIX B: executive summary wording for show-all mode in reporter.py
+- FIX 1: expanded version detection for Plugin Name header in scanner.py
+- FIX 2: deduplicated recording guide appendix by pattern name in reporter.py
+- FIX 3: --show-all flag for research mode in reporter.py and cli.py
+- FIX 4: SVN auto-checkout as default scan method in scanner.py and cli.py
+- feat: real payout estimates from platform scope check in scope.py and analyzer.py
+- feat: payout column in summary table sorted by value in cli.py
+- feat: total estimated payout in executive summary in reporter.py
+
+Full import test passing: scanner, analyzer, verifier, reporter, cli all OK.
+
 ## Current Status
 
-wp-bug-hunter 0.1.0 complete and hardened.
+wp-bug-hunter 0.1.0 complete and hardened. SVN auto-checkout, research mode,
+and payout estimation all live.
 
 ## Remaining Files (in order)
 
@@ -50,7 +65,6 @@ None.
 ## Resume Prompt (copy this exactly to continue)
 
 Read CLAUDE.md and PROGRESS.md. We are building wp-bug-hunter. Continue
-from where we left off. Next file is verifier.py. Follow all project rules:
-no em dashes, no AI references, human commit messages, SPDX headers,
-checkpoint after every file. Show file content before writing and wait
-for approval.
+from where we left off. Follow all project rules: no em dashes, no AI
+references, human commit messages, SPDX headers, checkpoint after every
+file. Show file content before writing and wait for approval.

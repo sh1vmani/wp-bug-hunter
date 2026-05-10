@@ -20,6 +20,7 @@ WP_PLUGIN_SVN = "https://plugins.svn.wordpress.org/"
 
 # Vulnerability pattern confidence thresholds
 HIGH_CONFIDENCE = 85
+PURSUIT_CONFIDENCE = 70
 MEDIUM_CONFIDENCE = 60
 LOW_CONFIDENCE = 40
 

@@ -139,6 +139,15 @@ def check_patchstack_scope(plugin_slug: str, session: requests.Session) -> Scope
             notes=f"Plugin page returned HTTP 200 in Patchstack database at {url}",
         )
 
+    if resp.status_code >= 500:
+        return ScopeResult(
+            platform="patchstack",
+            in_scope=False,
+            program_name=None,
+            program_url=PATCHSTACK_ALLIANCE_URL,
+            confidence=CONFIDENCE_UNKNOWN,
+            notes=f"Patchstack returned server error (HTTP {resp.status_code}). Verify manually.",
+        )
     return ScopeResult(
         platform="patchstack",
         in_scope=False,
@@ -179,6 +188,15 @@ def check_wordfence_scope(plugin_slug: str, session: requests.Session) -> ScopeR
             notes=f"Plugin page returned HTTP 200 in Wordfence Intelligence at {url}",
         )
 
+    if resp.status_code >= 500:
+        return ScopeResult(
+            platform="wordfence",
+            in_scope=False,
+            program_name=None,
+            program_url=PLATFORMS["wordfence"],
+            confidence=CONFIDENCE_UNKNOWN,
+            notes=f"Wordfence returned server error (HTTP {resp.status_code}). Verify manually.",
+        )
     return ScopeResult(
         platform="wordfence",
         in_scope=False,
@@ -198,6 +216,15 @@ def check_hackerone_scope(query: str, session: requests.Session) -> ScopeResult:
     is reachable, performs a case-insensitive partial name match.
     """
     search_url = HACKERONE_SEARCH_URL.format(query=query)
+    if not query.strip():
+        return ScopeResult(
+            platform="hackerone",
+            in_scope=False,
+            program_name=None,
+            program_url=search_url,
+            confidence=CONFIDENCE_UNKNOWN,
+            notes="Empty query; HackerOne check skipped.",
+        )
     resp = _get(
         session,
         HACKERONE_API_URL,
@@ -250,7 +277,7 @@ def check_hackerone_scope(query: str, session: requests.Session) -> ScopeResult:
     )
 
 
-def check_bugcrowd_scope(query: str, session: requests.Session) -> ScopeResult:
+def check_bugcrowd_scope(query: str) -> ScopeResult:
     """
     Check Bugcrowd public program directory for a target.
 
@@ -351,29 +378,29 @@ def verify_scope(target: str) -> ScopeCheck:
     target = target.strip()
     target_type = detect_target_type(target)
     check = ScopeCheck(target=target, target_type=target_type)
-    session = _make_session()
 
-    if target_type == TARGET_TYPE_PLUGIN:
-        slug = target.lower()
-        check.results.append(check_patchstack_scope(slug, session))
-        time.sleep(RATE_LIMIT_DELAY)
-        check.results.append(check_wordfence_scope(slug, session))
+    with _make_session() as session:
+        if target_type == TARGET_TYPE_PLUGIN:
+            slug = target.lower()
+            check.results.append(check_patchstack_scope(slug, session))
+            time.sleep(RATE_LIMIT_DELAY)
+            check.results.append(check_wordfence_scope(slug, session))
 
-    elif target_type == TARGET_TYPE_WEB:
-        check.results.append(check_hackerone_scope(target, session))
-        check.results.append(check_bugcrowd_scope(target, session))
-        time.sleep(RATE_LIMIT_DELAY)
-        check.results.append(check_intigriti_scope(target, session))
+        elif target_type == TARGET_TYPE_WEB:
+            check.results.append(check_hackerone_scope(target, session))
+            check.results.append(check_bugcrowd_scope(target))
+            time.sleep(RATE_LIMIT_DELAY)
+            check.results.append(check_intigriti_scope(target, session))
 
-    else:
-        slug = target.lower()
-        check.results.append(check_patchstack_scope(slug, session))
-        time.sleep(RATE_LIMIT_DELAY)
-        check.results.append(check_wordfence_scope(slug, session))
-        check.results.append(check_hackerone_scope(target, session))
-        check.results.append(check_bugcrowd_scope(target, session))
-        time.sleep(RATE_LIMIT_DELAY)
-        check.results.append(check_intigriti_scope(target, session))
+        else:
+            slug = target.lower()
+            check.results.append(check_patchstack_scope(slug, session))
+            time.sleep(RATE_LIMIT_DELAY)
+            check.results.append(check_wordfence_scope(slug, session))
+            check.results.append(check_hackerone_scope(target, session))
+            check.results.append(check_bugcrowd_scope(target))
+            time.sleep(RATE_LIMIT_DELAY)
+            check.results.append(check_intigriti_scope(target, session))
 
     check.overall_in_scope = any(r.in_scope for r in check.results)
     return check

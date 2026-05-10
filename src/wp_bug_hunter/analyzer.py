@@ -60,6 +60,10 @@ class VerificationWalkthrough:
     severity_justification: str
     cvss: CvssEstimate
     recording_guide: RecordingGuide
+    payout_low: int = 0
+    payout_high: int = 0
+    payout_estimate: str = ""
+    payout_from_platform: bool = False
 
 
 @dataclass
@@ -851,7 +855,39 @@ def _build_plugin_install(slug: str, version: str) -> list[str]:
     ]
 
 
-def analyze(scan_result: ScanResult) -> AnalysisResult:
+_FALLBACK_PAYOUTS: dict[str, list[tuple[int, tuple[int, int]]]] = {
+    "Critical": [(80, (3000, 10000)), (60, (1500, 5000)), (0, (500,  2000))],
+    "High":     [(80, (500,  3000)),  (60, (200,  1000)), (0, (50,   500))],
+    "Medium":   [(80, (100,  500)),   (60, (50,   200)),  (0, (0,    100))],
+}
+
+
+def _estimate_payout(
+    severity: str,
+    confidence: int,
+    payout_range: tuple[int, int] | None,
+) -> tuple[int, int, str, bool]:
+    """Return (low, high, label, from_platform) for one finding."""
+    multipliers = {"Critical": 1.5, "High": 1.0, "Medium": 0.4, "Low": 0.1}
+    conf_scale = confidence / 100
+
+    if payout_range is not None:
+        mult = multipliers.get(severity, 0.1)
+        low  = round(payout_range[0] * mult * conf_scale / 50) * 50
+        high = round(payout_range[1] * mult * conf_scale / 50) * 50
+        label = f"${low:,} - ${high:,} (from platform)"
+        return low, high, label, True
+
+    tiers = _FALLBACK_PAYOUTS.get(severity, _FALLBACK_PAYOUTS["Medium"])
+    low, high = next(bounds for threshold, bounds in tiers if confidence >= threshold)
+    label = f"${low:,} - ${high:,} (est.)"
+    return low, high, label, False
+
+
+def analyze(
+    scan_result: ScanResult,
+    payout_range: tuple[int, int] | None = None,
+) -> AnalysisResult:
     """
     Generate a complete manual verification walkthrough for every finding in a ScanResult.
 
@@ -897,6 +933,10 @@ def analyze(scan_result: ScanResult) -> AnalysisResult:
             export_settings=RECORDING_CODEC,
         )
 
+        pay_low, pay_high, pay_label, pay_from_platform = _estimate_payout(
+            finding.severity, finding.confidence, payout_range
+        )
+
         walkthroughs.append(
             VerificationWalkthrough(
                 finding=finding,
@@ -910,6 +950,10 @@ def analyze(scan_result: ScanResult) -> AnalysisResult:
                 severity_justification=tmpl.severity_justification,
                 cvss=cvss,
                 recording_guide=recording_guide,
+                payout_low=pay_low,
+                payout_high=pay_high,
+                payout_estimate=pay_label,
+                payout_from_platform=pay_from_platform,
             )
         )
 

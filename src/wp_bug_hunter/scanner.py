@@ -62,6 +62,10 @@ _AJAX_ANY_RE = re.compile(r"\bwp_ajax(_nopriv)?_\w+")
 _REST_ROUTE_RE = re.compile(r"\bregister_rest_route\s*\(")
 _SHORTCODE_HOOK_RE = re.compile(r"\badd_shortcode\s*\(")
 _DIRECT_BOOTSTRAP_RE = re.compile(r"(?:wp-load|wp-blog-header)\.php")
+DEFINITION_PENALTY = 60
+_FUNCTION_DEF_RE = re.compile(
+    r"\bfunction\s+\w*(?:update_option|delete_option|wp_insert_user|wp_update_user|add_user_to_blog)\w*\s*\("
+)
 _plugin_trigger_cache: dict[str, bool] = {}
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
@@ -541,6 +545,11 @@ def _apply_pattern(
 
     if pattern.name == PRIV_ESC_PATTERN_NAME:
         ctx_all = "\n".join(context_before + context_after)
+        if _FUNCTION_DEF_RE.search(line):
+            confidence = max(0, confidence - DEFINITION_PENALTY)
+            reason = (reason + "; " if reason else "") + (
+                "matched line is a function definition not a call, likely a wrapper method"
+            )
         if _MANAGE_OPTIONS_RE.search(ctx_all):
             confidence = max(0, confidence - MANAGE_OPTIONS_PENALTY)
             reason = (reason + "; " if reason else "") + (

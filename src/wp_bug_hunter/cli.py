@@ -94,6 +94,17 @@ def scan(
     try:
         _print_banner()
 
+        evidence_dir = os.path.join(EVIDENCE_DIR, plugin_slug)
+        if not os.path.isdir(evidence_dir):
+            os.makedirs(evidence_dir, exist_ok=True)
+            console.print(f"Evidence directory created: {evidence_dir}")
+            console.print(
+                f"Place your screen recordings and screenshots in {evidence_dir} "
+                "before the verifier runs."
+            )
+        else:
+            console.print(f"Evidence directory: {evidence_dir}")
+
         if not skip_network:
             scope_check = verify_scope(plugin_slug)
             _print_scope_results(scope_check)
@@ -116,7 +127,6 @@ def scan(
         console.print(f"Analyzing {len(scan_result.findings)} finding(s)...")
         analysis_result = analyze(scan_result)
 
-        evidence_dir = os.path.join(EVIDENCE_DIR, plugin_slug)
         console.print(f"Verifying {len(scan_result.findings)} finding(s)...")
         verifications = verify_analysis(
             analysis_result, evidence_dir, skip_network=skip_network

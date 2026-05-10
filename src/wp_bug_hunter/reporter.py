@@ -40,6 +40,11 @@ STATUS_WARN = "WARN"
 SECTION_SEPARATOR = "---"
 PLATFORM_UNSPECIFIED = "not specified"
 NO_VERIFICATION_NOTE = "No verification result found."
+PAYOUT_NOTE = (
+    "Payout estimates marked *(from platform)* use current rates fetched from the "
+    "program page. Estimates marked *(est.)* use general market averages. Verify "
+    "current rates on the program page before investing time in a finding."
+)
 
 
 def _tc(value: str) -> str:
@@ -63,9 +68,18 @@ def generate_report(
     filename = f"{result.plugin_slug}_{today.strftime(FILENAME_DATE_FORMAT)}.md"
     report_path = output_path / filename
 
+    verified_pairs = [
+        (wt, v) for wt, v in zip(result.walkthroughs, verifications) if v.ready
+    ]
+    total_payout_low  = sum(wt.payout_low  for wt, _ in verified_pairs)
+    total_payout_high = sum(wt.payout_high for wt, _ in verified_pairs)
+
     lines: list[str] = []
     lines.extend(_format_header(result, today, platform))
-    lines.extend(_format_executive_summary(result, verifications, show_all=show_all))
+    lines.extend(_format_executive_summary(
+        result, verifications, show_all=show_all,
+        total_payout_low=total_payout_low, total_payout_high=total_payout_high,
+    ))
 
     for walkthrough, verification in zip(result.walkthroughs, verifications):
         if not verification.ready and not show_all:
@@ -111,6 +125,8 @@ def _format_executive_summary(
     result: AnalysisResult,
     verifications: list[VerificationResult],
     show_all: bool = False,
+    total_payout_low: int = 0,
+    total_payout_high: int = 0,
 ) -> list[str]:
     """Render the executive summary section."""
     passed = sum(1 for v in verifications if v.ready)
@@ -133,8 +149,11 @@ def _format_executive_summary(
         "",
         f"- Total findings: {total_scanned if show_all else passed}",
         f"- Overall risk level: {risk_level}",
+        f"- Total estimated payout: ${total_payout_low:,} - ${total_payout_high:,}",
         "",
         summary_paragraph,
+        "",
+        PAYOUT_NOTE,
         "",
     ]
 
@@ -170,6 +189,7 @@ def _format_finding_section(
         f"| Confidence | {_tc(finding.confidence)}% |",
         f"| CVSS score | {_tc(walkthrough.cvss.score)} |",
         f"| CVSS vector | `{_tc(walkthrough.cvss.vector)}` |",
+        f"| Est. Payout | {_tc(walkthrough.payout_estimate)} |",
         "",
         "### Description",
         "",

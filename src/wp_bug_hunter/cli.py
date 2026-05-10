@@ -98,9 +98,14 @@ def _render_summary_table(
     pairs = [
         (wt, v)
         for wt, v in zip(analysis_result.walkthroughs, verifications)
-        if v.ready or show_all
+        if show_all or (v.confidence_passed and not v.cve_found)
     ]
     pairs.sort(key=lambda p: p[0].payout_high, reverse=True)
+    if not show_all:
+        console.print(
+            "Showing findings with confidence >= 70% and no known CVE. "
+            "Use --show-all to see all findings."
+        )
     for walkthrough, verification in pairs:
         finding = walkthrough.finding
         status_label, color = _status_for(verification)

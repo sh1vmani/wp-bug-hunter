@@ -21,10 +21,9 @@ MIN_SCREENSHOT_COUNT: int = 3
 
 _VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".mkv")
 _IMAGE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg")
-_WPSCAN_PUBLIC_DB_URL: str = (
-    "https://raw.githubusercontent.com/wpscanteam/wpscan-db/master/plugins.json"
-)
-_wpscan_db: dict | None = None
+_NVD_API_URL: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+_NVD_RESULTS_PER_PAGE: int = 10
+_nvd_cache: dict[str, tuple[bool, str]] = {}
 
 
 @dataclass
@@ -62,30 +61,52 @@ class VerificationResult:
         print()
 
 
-def _wpscan_cve_check(
+def _nvd_cve_check(
     plugin_slug: str,
     session: requests.Session,
 ) -> tuple[bool, str]:
-    """Return (clear, message) after checking the public WPScan vulnerability database.
+    """Return (clear, message) after querying the NIST NVD for known CVEs.
 
-    clear=True means no known CVEs were found or the check was inconclusive.
-    The database is downloaded once per process and cached in _wpscan_db.
+    clear=True means no matching CVEs were found or the check was inconclusive.
+    Uses the NVD keywordSearch endpoint, then filters results to those whose
+    description contains the plugin slug literally, to avoid false matches on
+    common English words shared with plugin slugs (e.g. "give"). Per-slug
+    results are cached in _nvd_cache for the life of the process.
     """
-    global _wpscan_db
-    if _wpscan_db is None:
-        try:
-            resp = session.get(_WPSCAN_PUBLIC_DB_URL, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            _wpscan_db = resp.json()
-        except requests.RequestException as exc:
-            return True, f"WPScan public DB fetch failed ({exc}); CVE check skipped."
+    if plugin_slug in _nvd_cache:
+        return _nvd_cache[plugin_slug]
 
-    plugin_data = _wpscan_db.get(plugin_slug, {})
-    vulns = plugin_data.get("vulnerabilities", [])
-    if not vulns:
-        return True, ""
-    titles = "; ".join(v.get("title", "unknown") for v in vulns[:3])
-    return False, f"WPScan lists {len(vulns)} known vulnerability(s): {titles}"
+    try:
+        resp = session.get(
+            _NVD_API_URL,
+            params={
+                "keywordSearch": f"{plugin_slug} wordpress plugin",
+                "resultsPerPage": _NVD_RESULTS_PER_PAGE,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        return True, f"NVD CVE lookup failed ({exc}); CVE check skipped."
+
+    slug_lower = plugin_slug.lower()
+    matches: list[tuple[str, str]] = []
+    for entry in data.get("vulnerabilities", []):
+        cve = entry.get("cve", {})
+        cve_id = cve.get("id", "unknown")
+        descriptions = cve.get("descriptions", [])
+        desc_text = descriptions[0].get("value", "") if descriptions else ""
+        if slug_lower in desc_text.lower():
+            matches.append((cve_id, desc_text))
+
+    if not matches:
+        result = (True, "")
+    else:
+        titles = "; ".join(f"{cve_id}: {desc[:80]}" for cve_id, desc in matches[:3])
+        result = (False, f"NVD lists {len(matches)} matching CVE(s): {titles}")
+    _nvd_cache[plugin_slug] = result
+    return result
 
 
 def verify_walkthrough(
@@ -185,7 +206,7 @@ def verify_walkthrough(
                 "Confirm the target is accepting reports before submitting."
             )
         if cve_result is None:
-            cve_result = _wpscan_cve_check(plugin_slug, requests.Session())
+            cve_result = _nvd_cve_check(plugin_slug, requests.Session())
         cve_clear, cve_msg = cve_result
         if not cve_clear:
             cve_found = True
@@ -220,7 +241,7 @@ def verify_analysis(
     cve_result: tuple[bool, str] | None = None
     if not skip_network:
         scope_check = verify_scope(result.plugin_slug)
-        cve_result = _wpscan_cve_check(result.plugin_slug, requests.Session())
+        cve_result = _nvd_cve_check(result.plugin_slug, requests.Session())
     return [
         verify_walkthrough(
             wt,

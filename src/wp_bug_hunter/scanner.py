@@ -62,6 +62,7 @@ _AJAX_ANY_RE = re.compile(r"\bwp_ajax(_nopriv)?_\w+")
 _REST_ROUTE_RE = re.compile(r"\bregister_rest_route\s*\(")
 _SHORTCODE_HOOK_RE = re.compile(r"\badd_shortcode\s*\(")
 _DIRECT_BOOTSTRAP_RE = re.compile(r"(?:wp-load|wp-blog-header)\.php")
+_plugin_trigger_cache: dict[str, bool] = {}
 # Byte chunk size when streaming the plugin zip download
 DOWNLOAD_CHUNK_SIZE = 8192
 # Only PHP files are scanned
@@ -466,20 +467,35 @@ def _compute_confidence(
     return max(0, min(100, score)), "; ".join(reasons)
 
 
-def _file_has_http_trigger(lines: list[str]) -> bool:
-    """Return True if any line in the file registers an HTTP entry point.
+def _plugin_has_http_trigger(plugin_root: pathlib.Path) -> bool:
+    """Return True if any PHP file in the plugin registers an HTTP entry point.
 
     Detects AJAX hooks (wp_ajax_*, wp_ajax_nopriv_*), REST routes
     (register_rest_route), shortcodes (add_shortcode), or direct WordPress
-    bootstrap (require/include of wp-load.php or wp-blog-header.php).
+    bootstrap (require/include of wp-load.php or wp-blog-header.php). Walks
+    every .php file in the plugin and short-circuits on the first match.
+    Result is cached per plugin_root for the life of the process.
     """
-    text = "\n".join(lines)
-    return bool(
-        _AJAX_ANY_RE.search(text)
-        or _REST_ROUTE_RE.search(text)
-        or _SHORTCODE_HOOK_RE.search(text)
-        or _DIRECT_BOOTSTRAP_RE.search(text)
-    )
+    key = str(plugin_root)
+    if key in _plugin_trigger_cache:
+        return _plugin_trigger_cache[key]
+
+    for php_file in plugin_root.rglob(f"*{PHP_EXTENSION}"):
+        try:
+            text = php_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if (
+            _AJAX_ANY_RE.search(text)
+            or _REST_ROUTE_RE.search(text)
+            or _SHORTCODE_HOOK_RE.search(text)
+            or _DIRECT_BOOTSTRAP_RE.search(text)
+        ):
+            _plugin_trigger_cache[key] = True
+            return True
+
+    _plugin_trigger_cache[key] = False
+    return False
 
 
 def _apply_pattern(
@@ -548,7 +564,7 @@ def _apply_pattern(
         if not file_has_trigger:
             confidence = max(0, confidence - HTTP_TRIGGER_PENALTY)
             reason = (reason + "; " if reason else "") + (
-                "no HTTP trigger point found in file, function may be unreachable from network"
+                "no HTTP trigger point found in plugin, function may be unreachable from network"
             )
         if _SHORTCODE_HOOK_RE.search(ctx_all):
             confidence = min(CONFIDENCE_CAP, confidence + SHORTCODE_BONUS)
@@ -594,7 +610,7 @@ def _scan_php_file(
     lines = text.splitlines()
     findings: list[Finding] = []
 
-    file_has_trigger = _file_has_http_trigger(lines)
+    file_has_trigger = _plugin_has_http_trigger(plugin_root)
 
     for i, _ in enumerate(lines):
         for pattern in PATTERNS:

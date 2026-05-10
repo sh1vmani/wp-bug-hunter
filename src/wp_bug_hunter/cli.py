@@ -98,16 +98,20 @@ def _render_summary_table(
     pairs = [
         (wt, v)
         for wt, v in zip(analysis_result.walkthroughs, verifications)
-        if show_all or (v.confidence_passed and not v.cve_found)
+        if show_all or v.ready
     ]
     pairs.sort(key=lambda p: p[0].payout_high, reverse=True)
+    if not pairs:
+        if show_all:
+            console.print("No findings found.")
+        else:
+            console.print(
+                "No findings passed verification for this plugin. "
+                "Open the report for candidates to pursue manually."
+            )
+        return
     top_pairs = pairs[:10]
     remaining = len(pairs) - len(top_pairs)
-    if not show_all:
-        console.print(
-            "Showing findings with confidence >= 70% and no known CVE. "
-            "Use --show-all to see all findings."
-        )
     if remaining > 0:
         console.print(f"Showing top 10 of {len(pairs)} findings by estimated payout. Full list in report.")
     for walkthrough, verification in top_pairs:
